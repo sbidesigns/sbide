@@ -1,0 +1,165 @@
+/**
+ * SBIDE - Font Loading States
+ * 
+ * Manages font loading with progressive enhancement:
+ * 1. System fonts shown immediately (no FOUC)
+ * 2. When Google Fonts load → .fonts-loaded class added via JS
+ * 3. If fonts fail → .fonts-failed class (stays on system)
+ * 4. Fallback timeout → .fonts-fallback class (3s safety net)
+ * 
+ * Classes are set by boot.js based on:
+ * - document.fonts.ready API (modern browsers)
+ * - link[rel=stylesheet] onload/onerror events
+ * - Timeout fallback for slow connections
+ * 
+ * @module fonts
+ * @version 2.0.0
+ */
+
+/* ============================================
+   Base: System Font Stack (shown immediately)
+   ============================================ */
+
+body {
+  /* Primary: System UI font stack for instant rendering */
+  font-family: 
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    'Helvetica Neue',
+    Arial,
+    sans-serif;
+  
+  /* Smooth font rendering */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Monospace elements use system mono by default */
+code,
+pre,
+kbd,
+samp,
+.cm-s-dracula,
+.code-editor textarea,
+.chat-message pre,
+.tool-result pre {
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    'SF Mono',
+    Menlo,
+    Consolas,
+    monospace;
+}
+
+/* ============================================
+   Enhanced: Google Fonts Loaded (.fonts-loaded)
+   Applied when Inter + JetBrains Mono finish loading
+   ============================================ */
+
+.fonts-loaded body {
+  font-family:
+    'Inter',
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    sans-serif !important;
+}
+
+.fonts-loaded code,
+.fonts-loaded pre,
+.fonts-loaded kbd,
+.fonts-loaded samp,
+.fonts-loaded .cm-s-dracula,
+.fonts-loaded .code-editor textarea,
+.fonts-loaded .chat-message pre,
+.fonts-loaded .tool-result pre {
+  font-family:
+    'JetBrains Mono',
+    'Fira Code',
+    ui-monospace,
+    monospace !important;
+}
+
+/* ============================================
+   Failed: Font Loading Error (.fonts-failed)
+   Stays on system fonts (same as base, but logged)
+   ============================================ */
+
+.fonts-failed body {
+  /* Intentionally same as base — system fonts are the fallback */
+}
+
+.fonts-failed code,
+.fonts-failed pre {
+  /* Intentionally same as base */
+}
+
+/* ============================================
+   Timeout Fallback (.fonts-fallback)
+   Applied after 3s if fonts haven't loaded yet
+   Uses system fonts but may indicate loading state
+   ============================================ */
+
+.fonts-fallback body {
+  /* Could add a subtle indicator that fonts are still loading */
+  /* For now, just ensure readable system rendering */
+}
+
+/* ============================================
+   Font Display Optimization
+   Prevent layout shift during font swap
+   ============================================ */
+
+/* Reduce FOIT (Flash of Invisible Text) to minimum */
+@font-face {
+  font-display: swap;
+}
+
+/* Smooth transition when fonts do load (reduces FOUT jank) */
+.fonts-loaded body,
+.fonts-loaded code,
+.fonts-loaded pre {
+  transition: font-family 0.2s ease-out;
+}
+
+/* ============================================
+   Print Styles for Fonts
+   Ensure readability when printing
+   ============================================ */
+
+@media print {
+  body,
+  code,
+  pre {
+    /* Use serif for print (better readability) */
+    font-family: 'Georgia', 'Times New Roman', serif;
+  }
+  
+  code,
+  pre {
+    /* Keep monospace for code blocks even in print */
+    font-family: 'Courier New', Courier, monospace;
+  }
+}
+
+/* ============================================
+   Forced Colors Mode (Windows High Contrast)
+   Respect user's OS font preferences
+   ============================================ */
+
+@media (forced-colors: active) {
+  body {
+    /* Use system default in high contrast mode */
+    font-family: system-ui, sans-serif;
+  }
+  
+  code,
+  pre {
+    font-family: monospace;
+  }
+}

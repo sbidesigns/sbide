@@ -1,0 +1,333 @@
+/* ============================================
+   SBIDE - Theme System
+   12 distinct professional themes (6 light + 6 dark)
+
+   LIGHT: Default, Indigo, Paper, Light Grey, Slate, Azure
+   DARK:  Dark, Midnight, Dark Grey, Graphite, Carbon, Black
+   ============================================ */
+
+/* ---------- LIGHT THEMES (6) ---------- */
+
+/* Theme: Default — pure white + indigo (corporate clean) */
+[data-theme="unthemed"] {
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #fafafa;
+  --color-card: #ffffff;
+  --color-card/50: rgba(255, 255, 255, 0.7);
+  --color-accent: #f5f5f5;
+  --color-accent-hover: #e5e5e5;
+  --color-accent/10: rgba(79, 70, 229, 0.1);
+  --color-accent/20: rgba(79, 70, 229, 0.2);
+  --color-accent/30: rgba(79, 70, 229, 0.3);
+  --color-border: #e5e7eb;
+  --color-border/50: rgba(229, 231, 235, 0.5);
+  --color-text-primary: #0a0a0a;
+  --color-text-secondary: #525252;
+  --color-text-muted: #8c8c8c;
+  --color-primary: #4f46e5;
+  --color-primary-hover: #4338ca;
+  --color-primary-light: #eef2ff;
+  --color-sidebar: #fafafa;
+
+  color-scheme: light;
+}
+
+/* Theme: Indigo — lavender-tinted white + violet (Linear-style) */
+[data-theme="default"] {
+  --color-bg-primary: #fafafe;
+  --color-bg-secondary: #f3f3fc;
+  --color-card: #ffffff;
+  --color-card/50: rgba(255, 255, 255, 0.85);
+  --color-accent: #ebe9fd;
+  --color-accent-hover: #dcd9fa;
+  --color-accent/10: rgba(124, 58, 237, 0.1);
+  --color-accent/20: rgba(124, 58, 237, 0.2);
+  --color-accent/30: rgba(124, 58, 237, 0.3);
+  --color-border: #d9d6f5;
+  --color-border/50: rgba(217, 214, 245, 0.5);
+  --color-text-primary: #1e1b4b;
+  --color-text-secondary: #5b21b6;
+  --color-text-muted: #8b5cf6;
+  --color-primary: #7c3aed;
+  --color-primary-hover: #6d28d9;
+  --color-primary-light: #ede9fe;
+  --color-sidebar: #f3f3fc;
+
+  color-scheme: light;
+}
+
+/* Theme: Paper — warm cream + amber (Notion warm paper) */
+[data-theme="light"] {
+  --color-bg-primary: #faf6f0;
+  --color-bg-secondary: #f3ece1;
+  --color-card: #fffcf7;
+  --color-card/50: rgba(255, 252, 247, 0.9);
+  --color-accent: #ede4d3;
+  --color-accent-hover: #e0d4bc;
+  --color-accent/10: rgba(180, 83, 9, 0.1);
+  --color-accent/20: rgba(180, 83, 9, 0.2);
+  --color-accent/30: rgba(180, 83, 9, 0.3);
+  --color-border: #e0d4bc;
+  --color-border/50: rgba(224, 212, 188, 0.5);
+  --color-text-primary: #2a2520;
+  --color-text-secondary: #6b5d4f;
+  --color-text-muted: #9c8b75;
+  --color-primary: #b45309;
+  --color-primary-hover: #92400e;
+  --color-primary-light: #fef3c7;
+  --color-sidebar: #f3ece1;
+
+  color-scheme: light;
+}
+
+/* Theme: Light Grey — soft grey + teal (calm professional) [NEW] */
+[data-theme="lightgrey"] {
+  --color-bg-primary: #f3f4f6;
+  --color-bg-secondary: #e5e7eb;
+  --color-card: #ffffff;
+  --color-card/50: rgba(255, 255, 255, 0.8);
+  --color-accent: #e5e7eb;
+  --color-accent-hover: #d1d5db;
+  --color-accent/10: rgba(13, 148, 136, 0.1);
+  --color-accent/20: rgba(13, 148, 136, 0.2);
+  --color-accent/30: rgba(13, 148, 136, 0.3);
+  --color-border: #d1d5db;
+  --color-border/50: rgba(209, 213, 219, 0.6);
+  --color-text-primary: #1f2937;
+  --color-text-secondary: #4b5563;
+  --color-text-muted: #6b7280;
+  --color-primary: #0d9488;
+  --color-primary-hover: #0f766e;
+  --color-primary-light: #ccfbf1;
+  --color-sidebar: #e5e7eb;
+
+  color-scheme: light;
+}
+
+/* Theme: Slate — cool gray monochrome (no color accent) */
+[data-theme="slate"] {
+  --color-bg-primary: #f8fafc;
+  --color-bg-secondary: #f1f5f9;
+  --color-card: #ffffff;
+  --color-card/50: rgba(255, 255, 255, 0.85);
+  --color-accent: #e2e8f0;
+  --color-accent-hover: #cbd5e1;
+  --color-accent/10: rgba(51, 65, 85, 0.1);
+  --color-accent/20: rgba(51, 65, 85, 0.2);
+  --color-accent/30: rgba(51, 65, 85, 0.3);
+  --color-border: #cbd5e1;
+  --color-border/50: rgba(203, 213, 225, 0.5);
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #475569;
+  --color-text-muted: #94a3b8;
+  --color-primary: #334155;
+  --color-primary-hover: #1e293b;
+  --color-primary-light: #e2e8f0;
+  --color-sidebar: #f1f5f9;
+
+  color-scheme: light;
+}
+
+/* Theme: Azure — Microsoft Fluent gray + fluent blue */
+[data-theme="azure"] {
+  --color-bg-primary: #faf9f8;
+  --color-bg-secondary: #f3f2f1;
+  --color-card: #ffffff;
+  --color-card/50: rgba(255, 255, 255, 0.85);
+  --color-accent: #edebe9;
+  --color-accent-hover: #e1dfdd;
+  --color-accent/10: rgba(0, 120, 212, 0.1);
+  --color-accent/20: rgba(0, 120, 212, 0.2);
+  --color-accent/30: rgba(0, 120, 212, 0.3);
+  --color-border: #d2d0ce;
+  --color-border/50: rgba(210, 208, 206, 0.5);
+  --color-text-primary: #201f1e;
+  --color-text-secondary: #605e5c;
+  --color-text-muted: #8a8886;
+  --color-primary: #0078d4;
+  --color-primary-hover: #106ebe;
+  --color-primary-light: #c7e0f4;
+  --color-sidebar: #f3f2f1;
+
+  color-scheme: light;
+}
+
+/* ---------- DARK THEMES (6) ---------- */
+
+/* Theme: Dark — slate-navy + indigo (VS Code Dark+ baseline) */
+[data-theme="dark"] {
+  --color-bg-primary: #0f172a;
+  --color-bg-secondary: #1e293b;
+  --color-card: #1e293b;
+  --color-card/50: rgba(30, 41, 59, 0.8);
+  --color-accent: #334155;
+  --color-accent-hover: #475569;
+  --color-accent/10: rgba(129, 140, 248, 0.1);
+  --color-accent/20: rgba(129, 140, 248, 0.2);
+  --color-accent/30: rgba(129, 140, 248, 0.3);
+  --color-border: #334155;
+  --color-border/50: rgba(51, 65, 85, 0.5);
+  --color-text-primary: #f1f5f9;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
+  --color-primary: #818cf8;
+  --color-primary-hover: #a5b4fc;
+  --color-primary-light: #312e81;
+  --color-sidebar: #1e293b;
+
+  color-scheme: dark;
+}
+
+/* Theme: Midnight — Tokyo-Night deep purple + violet */
+[data-theme="midnight"] {
+  --color-bg-primary: #1a1b26;
+  --color-bg-secondary: #24283b;
+  --color-card: #1f2335;
+  --color-card/50: rgba(31, 35, 53, 0.85);
+  --color-accent: #2d3149;
+  --color-accent-hover: #3d4263;
+  --color-accent/10: rgba(187, 154, 247, 0.1);
+  --color-accent/20: rgba(187, 154, 247, 0.2);
+  --color-accent/30: rgba(187, 154, 247, 0.3);
+  --color-border: #2d3149;
+  --color-border/50: rgba(45, 49, 73, 0.5);
+  --color-text-primary: #c0caf5;
+  --color-text-secondary: #9aa5ce;
+  --color-text-muted: #565f89;
+  --color-primary: #bb9af7;
+  --color-primary-hover: #c678dd;
+  --color-primary-light: #414868;
+  --color-sidebar: #16161e;
+
+  color-scheme: dark;
+}
+
+/* Theme: Dark Grey — charcoal + cyan (cool professional dark) [NEW] */
+[data-theme="darkgrey"] {
+  --color-bg-primary: #2d2d2d;
+  --color-bg-secondary: #383838;
+  --color-card: #333333;
+  --color-card/50: rgba(51, 51, 51, 0.85);
+  --color-accent: #404040;
+  --color-accent-hover: #525252;
+  --color-accent/10: rgba(6, 182, 212, 0.12);
+  --color-accent/20: rgba(6, 182, 212, 0.2);
+  --color-accent/30: rgba(6, 182, 212, 0.3);
+  --color-border: #4a4a4a;
+  --color-border/50: rgba(74, 74, 74, 0.6);
+  --color-text-primary: #f5f5f5;
+  --color-text-secondary: #b8b8b8;
+  --color-text-muted: #888888;
+  --color-primary: #06b6d4;
+  --color-primary-hover: #0891b2;
+  --color-primary-light: #0c4a6e;
+  --color-sidebar: #262626;
+
+  color-scheme: dark;
+}
+
+/* Theme: Graphite — warm dark + amber (JetBrains Darcula-style) */
+[data-theme="graphite"] {
+  --color-bg-primary: #1c1a17;
+  --color-bg-secondary: #26221d;
+  --color-card: #24211c;
+  --color-card/50: rgba(36, 33, 28, 0.85);
+  --color-accent: #3a342c;
+  --color-accent-hover: #4a4438;
+  --color-accent/10: rgba(217, 119, 6, 0.1);
+  --color-accent/20: rgba(217, 119, 6, 0.2);
+  --color-accent/30: rgba(217, 119, 6, 0.3);
+  --color-border: #3a342c;
+  --color-border/50: rgba(58, 52, 44, 0.5);
+  --color-text-primary: #f5f0e6;
+  --color-text-secondary: #c4b8a4;
+  --color-text-muted: #8a8170;
+  --color-primary: #d97706;
+  --color-primary-hover: #f59e0b;
+  --color-primary-light: #78350f;
+  --color-sidebar: #1a1814;
+
+  color-scheme: dark;
+}
+
+/* Theme: Carbon — IBM Carbon pure neutral black + IBM blue */
+[data-theme="carbon"] {
+  --color-bg-primary: #161616;
+  --color-bg-secondary: #262626;
+  --color-card: #1c1c1c;
+  --color-card/50: rgba(28, 28, 28, 0.85);
+  --color-accent: #2a2a2a;
+  --color-accent-hover: #393939;
+  --color-accent/10: rgba(15, 98, 254, 0.1);
+  --color-accent/20: rgba(15, 98, 254, 0.2);
+  --color-accent/30: rgba(15, 98, 254, 0.3);
+  --color-border: #393939;
+  --color-border/50: rgba(57, 57, 57, 0.5);
+  --color-text-primary: #f4f4f4;
+  --color-text-secondary: #c6c6c6;
+  --color-text-muted: #8d8d8d;
+  --color-primary: #0f62fe;
+  --color-primary-hover: #0353e9;
+  --color-primary-light: #0f3d91;
+  --color-sidebar: #1a1a1a;
+
+  color-scheme: dark;
+}
+
+/* Theme: Black — pure black + bright cyan (high-tech terminal) [NEW] */
+[data-theme="black"] {
+  --color-bg-primary: #000000;
+  --color-bg-secondary: #0a0a0a;
+  --color-card: #0f0f0f;
+  --color-card/50: rgba(15, 15, 15, 0.9);
+  --color-accent: #1a1a1a;
+  --color-accent-hover: #262626;
+  --color-accent/10: rgba(34, 211, 238, 0.12);
+  --color-accent/20: rgba(34, 211, 238, 0.2);
+  --color-accent/30: rgba(34, 211, 238, 0.3);
+  --color-border: #262626;
+  --color-border/50: rgba(38, 38, 38, 0.7);
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #a3a3a3;
+  --color-text-muted: #737373;
+  --color-primary: #22d3ee;
+  --color-primary-hover: #06b6d4;
+  --color-primary-light: #083344;
+  --color-sidebar: #050505;
+
+  color-scheme: dark;
+}
+
+/* ============================================
+   Gradient Accent for Logo
+   ============================================ */
+.gradient-accent {
+  background: linear-gradient(135deg, var(--color-primary, #4f46e5) 0%, var(--color-primary-hover, #4338ca) 100%);
+}
+
+/* ============================================
+   Missing Variable Fallbacks
+   ----------------------------------------------
+   Aliases for variables referenced in styles.css
+   that aren't defined in individual theme blocks.
+   ============================================ */
+[data-theme] {
+  --color-muted: var(--color-accent);
+  --color-bg-tertiary: var(--color-bg-secondary);
+  --color-text-tertiary: var(--color-text-muted);
+  --color-bg: var(--color-bg-primary);
+  --color-border-light: var(--color-border);
+  --color-text-muted-50: var(--color-text-muted);
+  --color-text: var(--color-text-primary);
+  /* Fallback for browsers without color-mix() support */
+  --color-primary-bg: rgba(79, 70, 229, 0.1);
+  --color-primary-border: rgba(79, 70, 229, 0.2);
+}
+
+/* Modern browsers with color-mix() support */
+@supports (color: color-mix(in srgb, red, blue)) {
+  [data-theme] {
+    --color-primary-bg: color-mix(in srgb, var(--color-primary, #4f46e5) 10%, transparent);
+    --color-primary-border: color-mix(in srgb, var(--color-primary, #4f46e5) 20%, transparent);
+  }
+}

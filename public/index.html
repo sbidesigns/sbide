@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="unthemed">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="SBIDE - Browser-based AI-powered IDE with tool-calling capabilities">
+  <meta name="author" content="SBI Designs">
+  <meta name="keywords" content="AI IDE, Code Editor, Development Environment, AI Assistant, File Management, Version Control, Chat Interface, Web IDE">
+  <meta name="theme-color" content="#6366f1">
+  <meta name="color-scheme" content="light dark">
+
+  <!-- Canonical URL -->
+  <link rel="canonical" href="https://ide.sbidesigns.com/">
+
+  <!-- Open Graph / Social -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="SBIDE - IDE">
+  <meta property="og:description" content="AI-Powered Development Environment with integrated chat, file management, and code editing">
+  <meta property="og:image" content="logo.svg">
+  <meta property="og:url" content="https://ide.sbidesigns.com/">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="SBIDE - IDE">
+  <meta name="twitter:description" content="AI-Powered Development Environment">
+
+  <title>SBIDE - IDE</title>
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="logo.svg">
+
+  <!-- Fonts with fallback -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" onload="document.documentElement.classList.add('fonts-loaded')" onerror="document.documentElement.classList.add('fonts-failed')">
+  
+  <!-- Font Loading States (extracted for maintainability) -->
+  <link rel="stylesheet" href="css/fonts.css">
+  
+  <!-- CodeMirror for code editing -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
+  
+  <!-- Highlight.js for syntax highlighting -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  
+  <!-- Main Styles -->
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/themes.css">
+  
+  <!-- Critical JS Preload Hints (parallel download before execution) -->
+  <link rel="preload" href="js/boot.js" as="script">
+  <link rel="preload" href="js/index.js" as="script">
+  <link rel="preload" href="js/utils.js" as="script">
+  <link rel="preload" href="js/storage.js" as="script">
+  <link rel="preload" href="js/state.js" as="script">
+  <link rel="preload" href="js/api.js" as="script">
+  <link rel="preload" href="js/themes.js" as="script">
+  <link rel="preload" href="js/components/chat-window.js" as="script">
+  <link rel="preload" href="js/components/code-editor.js" as="script">
+  <link rel="preload" href="js/components/sidebar.js" as="script">
+  <link rel="preload" href="js/app.js" as="script">
+</head>
+<body>
+  <!-- ============================================
+       Loading Overlay (Instant Feedback)
+       Shows immediately - removed by JS when app is ready
+       ============================================ -->
+  <div id="app-loading-overlay" class="app-loading-overlay" aria-hidden="true">
+    <!-- Logo -->
+    <svg class="app-loading-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+      <path d="M2 17l10 5 10-5"/>
+      <path d="M2 12l10 5 10-5"/>
+    </svg>
+    
+    <!-- Title -->
+    <span class="app-loading-text">SBIDE</span>
+    
+    <!-- Progress Bar -->
+    <div class="app-loading-progress">
+      <div id="loading-progress-bar" class="app-loading-progress-bar"></div>
+    </div>
+    
+    <!-- Stage Text -->
+    <span id="loading-stage-text" class="app-loading-stage">Initializing...</span>
+  </div>
+
+  <div id="app" class="app-container" aria-label="SBIDE IDE">
+    
+    <!-- Skip Navigation -->
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+    
+    <!-- Header -->
+    <header class="app-header" role="banner">
+      <div class="header-left">
+        <!-- Mobile Menu Toggle -->
+        <button 
+          id="mobile-menu-btn" 
+          class="icon-btn mobile-only" 
+          aria-label="Toggle sidebar menu"
+          aria-expanded="false"
+        >
+          <svg class="icon icon-menu" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          <svg class="icon icon-x hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+        
+        <!-- Logo -->
+        <div class="logo" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5"/>
+            <path d="M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        
+        <h1 class="header-title hidden-sm">SBIDE</h1>
+        <span class="badge badge-outline hidden-md">v1.0</span>
+      </div>
+      
+      <div class="header-right">
+        <!-- Current Project Badge -->
+        <span id="current-project-badge" class="badge badge-secondary hidden-sm hidden"></span>
+        
+        <!-- ZIP Backup Indicator -->
+        <div id="zip-indicator" class="zip-indicator hidden-md" title="Auto ZIP backup enabled">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+          <span>ZIP</span>
+        </div>
+        
+        <!-- Context Window Indicator -->
+        <div id="context-window-indicator" class="context-window-indicator hidden-md" title="Context window usage - click to switch LLM">
+          <div class="context-window-bar">
+            <div id="context-window-fill" class="context-window-fill"></div>
+          </div>
+          <span id="context-window-text" class="context-window-text">0%</span>
+        </div>
+        
+        <!-- LLM Provider Badge -->
+        <button 
+          id="llm-provider-btn" 
+          class="llm-provider-badge hidden-md" 
+          aria-label="Switch LLM provider"
+          title="Click to change AI provider"
+        >
+          <span id="provider-dot" class="provider-dot"></span>
+          <span id="provider-name-text">Z.AI Default</span>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        
+        <!-- View Mode Toggle -->
+        <div id="view-toggle" class="view-toggle hidden-md" role="tablist" aria-label="View mode">
+          <button 
+            id="btn-view-chat" 
+            class="toggle-btn active" 
+            role="tab" 
+            aria-selected="true"
+            data-view="chat"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+            Chat
+          </button>
+          <button 
+            id="btn-view-editor" 
+            class="toggle-btn" 
+            role="tab" 
+            aria-selected="false"
+            data-view="editor"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            Editor
+          </button>
+          <button 
+            id="btn-view-preview" 
+            class="toggle-btn" 
+            role="tab" 
+            aria-selected="false"
+            data-view="preview"
+            title="Preview HTML/Markdown files"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            Preview
+          </button>
+        </div>
+        
+        <!-- Connections Button (HuggingFace + GitHub) -->
+        <button
+          id="connections-btn"
+          class="icon-btn"
+          aria-label="Connect to HuggingFace or GitHub"
+          title="Connections (HuggingFace, GitHub)"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+          <span class="connections-dot"></span>
+        </button>
+
+        <!-- Settings Button -->
+        <button 
+          id="settings-btn" 
+          class="icon-btn" 
+          aria-label="Open settings"
+          title="Settings"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        </button>
+        
+        <!-- Editor Panel Toggle (Desktop) -->
+        <button 
+          id="editor-panel-toggle" 
+          class="icon-btn hidden-md" 
+          aria-label="Toggle editor panel"
+          title="Toggle editor panel"
+        >
+          <svg class="panel-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+        </button>
+        
+        <!-- Theme Cycle Button -->
+        <button 
+          id="theme-cycle-btn" 
+          class="icon-btn theme-cycle-btn" 
+          aria-label="Cycle theme"
+          title="Change theme"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main id="main-content" class="main-content" role="main">
+      
+      <!-- Mobile Overlay -->
+      <div id="mobile-overlay" class="mobile-overlay hidden" aria-hidden="true"></div>
+      
+      <!-- Left Sidebar -->
+      <aside 
+        id="sidebar" 
+        class="sidebar" 
+        role="complementary" 
+        aria-label="Project sidebar"
+      >
+        <!-- Loading Skeleton (shown until sidebar initializes) -->
+        <div id="sidebar-skeleton" class="sidebar-loading-skeleton">
+          <div class="skeleton-header">
+            <div class="skeleton-title"></div>
+            <div class="skeleton-actions">
+              <div class="skeleton-btn"></div>
+              <div class="skeleton-btn"></div>
+              <div class="skeleton-btn"></div>
+            </div>
+          </div>
+          <div class="skeleton-list">
+            <div class="skeleton-item"><div class="skeleton-icon"></div><div class="skeleton-text long"></div></div>
+            <div class="skeleton-item"><div class="skeleton-icon"></div><div class="skeleton-text medium"></div></div>
+            <div class="skeleton-item"><div class="skeleton-icon"></div><div class="skeleton-text short"></div></div>
+            <div class="skeleton-item"><div class="skeleton-icon"></div><div class="skeleton-text long"></div></div>
+            <div class="skeleton-item"><div class="skeleton-icon"></div><div class="skeleton-text medium"></div></div>
+          </div>
+        </div>
+        
+        <!-- Collapsed Sidebar (Icon Bar) -->
+        <div id="sidebar-collapsed" class="sidebar-collapsed">
+          <button id="expand-sidebar-btn" class="icon-btn" aria-label="Expand sidebar">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+          
+          <nav class="sidebar-nav" aria-label="Sidebar navigation">
+            <button class="sidebar-nav-btn active" data-tab="files" aria-label="Files" title="Files">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+            </button>
+            <button class="sidebar-nav-btn" data-tab="memory" aria-label="Memory" title="Memory">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a8 8 0 018 8c0 5.4-8 14-8 14S4 15.4 4 10a8 8 0 018-8z"/><circle cx="12" cy="10" r="3"/></svg>
+            </button>
+            <button class="sidebar-nav-btn" data-tab="versions" aria-label="Versions" title="Versions">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </button>
+            <button class="sidebar-nav-btn" data-tab="search" aria-label="Search" title="Search">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            </button>
+            <button class="sidebar-nav-btn" data-tab="meetings" aria-label="Meetings" title="Meetings">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+            </button>
+          </nav>
+        </div>
+        
+        <!-- Expanded Sidebar -->
+        <div id="sidebar-expanded" class="sidebar-expanded">
+          <div class="sidebar-header">
+            <h2 class="sidebar-title">Projects</h2>
+            <div class="sidebar-actions">
+              <button id="new-project-btn" class="icon-btn sm" title="New Project" aria-label="Create new project">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </button>
+              <button id="import-project-btn" class="icon-btn sm" title="Import Project" aria-label="Import project from ZIP">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              </button>
+              <button id="collapse-sidebar-btn" class="icon-btn sm" aria-label="Collapse sidebar">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+              </button>
+            </div>
+          </div>
+          
+          <!-- Projects List -->
+          <div class="projects-list-container">
+            <div id="projects-loading" class="loading-spinner hidden">
+              <div class="spinner"></div>
+              <span>Loading projects...</span>
+            </div>
+            <div id="projects-list" class="projects-list" role="listbox" aria-label="Projects"></div>
+            <div id="no-projects" class="empty-state hidden">
+              <span>No projects yet</span>
+            </div>
+          </div>
+          <div class="projects-resize-handle" role="separator" aria-orientation="horizontal" aria-label="Resize projects list" tabindex="0"></div>
+          
+          <!-- Tab Panels -->
+          <div class="sidebar-tabs" role="tablist">
+            <button class="tab-btn active" data-tab="files" role="tab" aria-selected="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+            </button>
+            <button class="tab-btn" data-tab="memory" role="tab" aria-selected="false">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a8 8 0 018 8c0 5.4-8 14-8 14S4 15.4 4 10a8 8 0 018-8z"/></svg>
+            </button>
+            <button class="tab-btn" data-tab="versions" role="tab" aria-selected="false">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/></svg>
+            </button>
+            <button class="tab-btn" data-tab="search" role="tab" aria-selected="false">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            </button>
+            <button class="tab-btn" data-tab="meetings" role="tab" aria-selected="false">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+            </button>
+          </div>
+          
+          <!-- Tab Content Panels -->
+          <div class="tab-panels">
+            <!-- Files Panel -->
+            <div id="panel-files" class="tab-panel active" role="tabpanel" aria-labelledby="tab-files">
+              <!-- file-tree-panel-header: reordered (new-file, new-folder, sort-name, sort-date, refresh) -->
+              <div class="panel-header file-tree-panel-header">
+                <span class="panel-header-spacer"></span>
+                <button id="new-file-btn" class="icon-btn xs" title="New file" aria-label="Create new file">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+                </button>
+                <button id="new-folder-btn" class="icon-btn xs" title="New folder" aria-label="Create new folder">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+                </button>
+                <button id="sort-name-btn" class="icon-btn xs sort-toggle" data-sort="name" data-dir="asc" title="Sort by name (A→Z). Click to reverse." aria-label="Sort by name, click to reverse direction" aria-pressed="true">
+                  <svg class="icon-asc" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h10M3 12h7M3 18h4"/><line x1="18" y1="6" x2="18" y2="18"/><polyline points="15 9 18 6 21 9"/></svg>
+                  <svg class="icon-desc hidden" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h10M3 12h7M3 18h4"/><line x1="18" y1="6" x2="18" y2="18"/><polyline points="15 15 18 18 21 15"/></svg>
+                </button>
+                <button id="sort-date-btn" class="icon-btn xs sort-toggle" data-sort="date" data-dir="desc" title="Sort by date (Newest first). Click to reverse." aria-label="Sort by date, click to reverse direction" aria-pressed="false">
+                  <svg class="icon-desc" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="12" r="7"/><polyline points="10 8 10 12 13 14"/><line x1="20" y1="5" x2="20" y2="19"/><polyline points="17 16 20 19 23 16"/></svg>
+                  <svg class="icon-asc hidden" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="12" r="7"/><polyline points="10 8 10 12 13 14"/><line x1="20" y1="5" x2="20" y2="19"/><polyline points="17 8 20 5 23 8"/></svg>
+                </button>
+                <button id="refresh-files-btn" class="icon-btn xs" title="Refresh files" aria-label="Refresh file tree">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+                </button>
+              </div>
+              <div id="file-tree" class="file-tree" role="tree" aria-label="File explorer"></div>
+            </div>
+            
+            <!-- Memory Panel -->
+            <div id="panel-memory" class="tab-panel" role="tabpanel" aria-labelledby="tab-memory">
+              <div class="memory-panel">
+                <div class="memory-empty-state">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="text-muted"><path d="M12 2a8 8 0 018 8c0 5.4-8 14-8 14S4 15.4 4 10a8 8 0 018-8z"/></svg>
+                  <p>Select a project to view memory anchors</p>
+                </div>
+                <div id="memory-content" class="memory-content hidden"></div>
+              </div>
+            </div>
+            
+            <!-- Versions Panel -->
+            <div id="panel-versions" class="tab-panel" role="tabpanel" aria-labelledby="tab-versions">
+              <div class="version-browser">
+                <div class="version-empty-state">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="text-muted"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  <p>No versions available</p>
+                </div>
+                <div id="versions-list" class="versions-list hidden"></div>
+              </div>
+            </div>
+            
+            <!-- Search Panel -->
+            <div id="panel-search" class="tab-panel" role="tabpanel" aria-labelledby="tab-search">
+              <div class="search-panel">
+                <div class="search-input-wrapper">
+                  <input 
+                    type="text" 
+                    id="search-input" 
+                    class="search-input" 
+                    placeholder="Search the web..."
+                    aria-label="Web search query"
+                  />
+                  <button id="search-btn" class="btn btn-primary btn-sm" aria-label="Search">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  </button>
+                </div>
+                <div id="search-results" class="search-results"></div>
+                <div id="context-results" class="context-results hidden">
+                  <h4 class="context-title">Context Sources (<span id="context-count">0</span>)</h4>
+                  <div id="context-list" class="context-list"></div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Meetings Panel -->
+            <div id="panel-meetings" class="tab-panel" role="tabpanel" aria-labelledby="tab-meetings">
+              <div class="meetings-panel">
+                <div class="meetings-empty-state">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="text-muted"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+                  <p>Meeting notes will appear here after AI interactions</p>
+                </div>
+                <div id="meetings-list" class="meetings-list hidden"></div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Project Info Footer -->
+          <div id="project-info-footer" class="project-info-footer hidden">
+            <div class="info-row">
+              <span>Version</span>
+              <span id="footer-version" class="font-mono">-</span>
+            </div>
+            <div class="info-row">
+              <span>Files</span>
+              <span id="footer-file-count">-</span>
+            </div>
+          </div>
+        </div>
+        <!-- Resize handle for adjustable sidebar width (desktop only) -->
+        <div class="sidebar-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div>
+      </aside>
+
+      <!-- Chat Area -->
+      <section id="chat-area" class="chat-area" aria-label="AI Chat interface">
+        <!-- Loading Skeleton (shown until chat initializes) -->
+        <div id="chat-skeleton" class="chat-loading-skeleton">
+          <div class="chat-skeleton-message" style="align-self: flex-end;">
+            <div class="chat-skeleton-bubble">
+              <div class="chat-skeleton-line long"></div>
+              <div class="chat-skeleton-line medium"></div>
+            </div>
+          </div>
+          <div class="chat-skeleton-message">
+            <div class="chat-skeleton-avatar"></div>
+            <div class="chat-skeleton-bubble">
+              <div class="chat-skeleton-line long"></div>
+              <div class="chat-skeleton-line long"></div>
+              <div class="chat-skeleton-line short"></div>
+            </div>
+          </div>
+          <div class="chat-skeleton-message">
+            <div class="chat-skeleton-avatar"></div>
+            <div class="chat-skeleton-bubble">
+              <div class="chat-skeleton-line medium"></div>
+              <div class="chat-skeleton-line long"></div>
+              <div class="chat-skeleton-line short"></div>
+              <div class="chat-skeleton-line medium"></div>
+            </div>
+          </div>
+        </div>
+        
+        <div id="chat-messages" class="chat-messages" role="log" aria-live="polite" aria-label="Chat messages">
+          <!-- Welcome state and messages are rendered by ChatWindowComponent -->
+        </div>
+        
+        <!-- Chat Input -->
+        <div class="chat-input-container">
+          <div class="chat-toolbar">
+            <button id="clear-chat-btn" class="btn btn-ghost btn-xs" data-action="clear" disabled aria-label="Clear conversation">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+              Clear
+            </button>
+            <button id="export-chat-btn" class="btn btn-ghost btn-xs" data-action="export" disabled aria-label="Export conversation">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Export
+            </button>
+            
+            <!-- Toolbar: Separator -->
+            <div class="toolbar-separator"></div>
+            
+            <!-- Web Search Toggle -->
+            <button 
+              id="web-search-btn" 
+              class="btn btn-ghost btn-xs toolbar-toggle" 
+              data-action="web-search"
+              aria-label="Toggle web search for next message"
+              aria-pressed="false"
+              title="Enable web search — AI will search the internet before responding"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <span>Web Search</span>
+              <span class="toggle-indicator" aria-hidden="true"></span>
+            </button>
+            
+            <!-- Diff Patch Mode Toggle -->
+            <button 
+              id="diff-patch-btn" 
+              class="btn btn-ghost btn-xs toolbar-toggle" 
+              data-action="diff-patch"
+              aria-label="Toggle diff patch mode"
+              aria-pressed="false"
+              title="Diff Patch Mode — AI responses show unified diff format for code changes"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M20 21h-5v-5"/><path d="M4 21h5v-5"/><path d="M21 3l-9 9"/><path d="M3 21l9-9"/></svg>
+              <span>Diff Patch</span>
+              <span class="toggle-indicator" aria-hidden="true"></span>
+            </button>
+            
+            <div id="context-indicator" class="context-indicator hidden">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <span id="context-result-count">0</span> web results in context
+            </div>
+          </div>
+          
+          <div class="chat-input-wrapper">
+            <textarea 
+              id="chat-input" 
+              class="chat-input" 
+              placeholder="Send a message..." 
+              rows="1"
+              aria-label="Chat message input"
+            ></textarea>
+            <div class="chat-input-actions">
+              <button 
+                id="stop-streaming-btn" 
+                class="btn btn-danger btn-icon hidden" 
+                data-action="stop"
+                aria-label="Stop streaming response"
+                title="Stop generation"
+              >
+                <svg class="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>
+              </button>
+              <button 
+                id="send-message-btn" 
+                class="btn btn-primary btn-icon" 
+                data-action="send" 
+                aria-label="Send message"
+                title="Send message (Enter)"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              </button>
+            </div>
+          </div>
+          <p class="chat-input-hint">Press Enter to send, Shift+Enter for new line</p>
+        </div>
+      </section>
+
+      <!-- Editor Panel -->
+      <div class="editor-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize editor panel" tabindex="0"></div>
+      <aside id="editor-panel" class="editor-panel hidden" aria-label="Code editor panel">
+        <!-- Loading Skeleton (shown until editor initializes) -->
+        <div id="editor-skeleton" class="editor-loading-skeleton">
+          <div class="editor-skeleton-header">
+            <div class="editor-skeleton-tabs">
+              <div class="editor-skeleton-tab"></div>
+              <div class="editor-skeleton-tab"></div>
+            </div>
+          </div>
+          <div class="editor-skeleton-body">
+            <div class="editor-skeleton-line long"></div>
+            <div class="editor-skeleton-line indent"></div>
+            <div class="editor-skeleton-line medium"></div>
+            <div class="editor-skeleton-line long"></div>
+            <div class="editor-skeleton-line indent"></div>
+            <div class="editor-skeleton-line short"></div>
+            <div class="editor-skeleton-line long"></div>
+          </div>
+        </div>
+        
+        <div id="editor-no-file" class="editor-no-file hidden">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+            <polyline points="10 9 9 9 8 9"/>
+          </svg>
+          <p class="editor-no-file-title">No file selected</p>
+          <p class="editor-no-file-hint">Select a file from the sidebar to view or edit</p>
+        </div>
+        
+        <div id="editor-active" class="editor-active hidden">
+          <!-- Editor Header -->
+          <div class="editor-header">
+            <div class="editor-header-left">
+              <span id="editor-file-icon" class="file-icon" aria-hidden="true"></span>
+              <span id="editor-file-name" class="file-name"></span>
+              <span id="editor-language-badge" class="badge badge-outline"></span>
+              <span id="editor-modified-badge" class="badge badge-warning hidden">Modified</span>
+            </div>
+            <div class="editor-header-right">
+              <!-- View Mode Actions -->
+              <div id="editor-view-actions" class="editor-actions">
+                <button id="copy-file-btn" class="icon-btn xs" data-action="copy" title="Copy content" aria-label="Copy file content">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                </button>
+                <button id="download-file-btn" class="icon-btn xs" data-action="download" title="Download file" aria-label="Download file">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </button>
+                <button id="preview-toggle-btn" class="icon-btn xs hidden" data-action="preview" title="Preview rendered" aria-label="Toggle preview mode">
+                  <svg class="preview-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  <svg class="code-icon hidden" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                </button>
+                <button id="edit-file-btn" class="icon-btn xs" data-action="edit" title="Edit file" aria-label="Edit file">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                </button>
+                <button id="fullscreen-btn" class="icon-btn xs" data-action="fullscreen" title="Fullscreen" aria-label="Toggle fullscreen mode">
+                  <svg class="maximize-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
+                  <svg class="minimize-icon hidden" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v3a2 2 0 01-2 2H3m18 0h-3a2 2 0 01-2-2V3m0 18v-3a2 2 0 012-2h3M3 16h3a2 2 0 012 2v3"/></svg>
+                </button>
+                <button id="close-editor-btn" class="icon-btn xs" title="Close" aria-label="Close editor">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+              
+              <!-- Edit Mode Actions -->
+              <div id="editor-edit-actions" class="editor-actions hidden">
+                <button id="cancel-edit-btn" class="btn btn-ghost btn-xs" data-action="view" aria-label="Cancel editing">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 105.31-5.31L1 10"/></svg>
+                  Cancel
+                </button>
+                <button id="save-file-btn" class="btn btn-primary btn-xs" data-action="save" disabled aria-label="Save file">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Find/Replace Panel -->
+          <div id="find-replace-panel" class="find-replace-panel hidden">
+            <div class="find-row">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-muted"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" id="find-input" class="find-input input input-xs" placeholder="Find..." aria-label="Find text">
+              <span id="match-count" class="match-count hidden"></span>
+              <button id="find-prev-btn" class="icon-btn xs find-prev" aria-label="Previous match" disabled>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"/></svg>
+              </button>
+              <button id="find-next-btn" class="icon-btn xs find-next" aria-label="Next match" disabled>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              <button id="close-find-btn" class="icon-btn xs find-close" aria-label="Close find/replace">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+              </button>
+            </div>
+            <div class="replace-row">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-muted"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+              <input type="text" id="replace-input" class="replace-input input input-xs" placeholder="Replace..." aria-label="Replace text">
+              <button id="replace-btn" class="btn btn-outline btn-xs replace-one disabled" aria-label="Replace current match">Replace</button>
+              <button id="replace-all-btn" class="btn btn-outline btn-xs replace-all disabled" aria-label="Replace all matches">All</button>
+            </div>
+          </div>
+          
+          <!-- Editor Content Area -->
+          <div class="editor-content">
+            <!-- View Mode: Syntax Highlighted Code -->
+            <div id="code-display" class="code-display">
+              <pre><code id="code-highlight" class="hljs"></code></pre>
+            </div>
+            
+            <!-- Edit Mode: Textarea with Line Numbers -->
+            <div id="code-editor" class="code-editor hidden">
+              <div class="line-numbers" id="line-numbers" aria-hidden="true"></div>
+              <textarea 
+                id="code-textarea" 
+                class="code-textarea" 
+                spellcheck="false"
+                aria-label="Code editor"
+              ></textarea>
+            </div>
+            
+            <!-- Preview Mode: Iframe for HTML/SVG -->
+            <div id="code-preview" class="code-preview hidden">
+              <iframe id="preview-iframe" sandbox="allow-scripts allow-same-origin" title="File preview"></iframe>
+            </div>
+          </div>
+          
+          <!-- Editor Footer -->
+          <div class="editor-footer">
+            <div class="editor-stats">
+              <span id="line-count">0 lines</span>
+              <span id="byte-count">0 bytes</span>
+              <span id="language-name" class="hidden-sm">-</span>
+            </div>
+            <div class="editor-footer-actions">
+              <div id="edit-mode-actions" class="edit-mode-actions hidden">
+                <button id="word-wrap-btn" class="icon-btn xs active" title="Toggle word wrap" aria-label="Toggle word wrap">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
+                </button>
+                <button id="show-find-btn" class="icon-btn xs" title="Find & Replace" aria-label="Open find and replace">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                </button>
+              </div>
+              <button id="quick-edit-btn" class="btn btn-outline btn-xs hidden-sm">Edit</button>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <!-- Mobile Bottom Navigation -->
+    <nav id="mobile-nav" class="mobile-nav hidden" role="navigation" aria-label="Mobile navigation">
+      <button class="mobile-nav-btn" data-panel="sidebar" aria-label="Files" type="button">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        <span>Files</span>
+      </button>
+      <button class="mobile-nav-btn active" data-panel="chat" aria-label="Chat" type="button">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+        <span>Chat</span>
+      </button>
+      <button class="mobile-nav-btn" data-panel="editor" aria-label="Editor" type="button">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        <span>Editor</span>
+      </button>
+      <button class="mobile-nav-btn" data-panel="settings" aria-label="Settings" type="button">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        <span>Settings</span>
+      </button>
+    </nav>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
+      <div class="modal">
+        <div class="modal-header">
+          <h2 id="settings-modal-title" class="modal-title">Settings</h2>
+          <button id="close-settings-btn" class="icon-btn" aria-label="Close settings">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <!-- Theme Setting -->
+          <div class="setting-group">
+            <label class="setting-label" for="theme-select">Theme</label>
+            <select id="theme-select" class="select" aria-label="Select theme">
+              <optgroup label="Light">
+                <option value="unthemed">Default (Pure white + indigo)</option>
+                <option value="default">Indigo (Lavender + violet)</option>
+                <option value="light">Paper (Cream + amber)</option>
+                <option value="lightgrey">Light Grey (Soft grey + teal)</option>
+                <option value="slate">Slate (Cool gray monochrome)</option>
+                <option value="azure">Azure (Fluent gray + blue)</option>
+              </optgroup>
+              <optgroup label="Dark">
+                <option value="dark">Dark (Slate-navy + indigo)</option>
+                <option value="midnight">Midnight (Deep purple + violet)</option>
+                <option value="darkgrey">Dark Grey (Charcoal + cyan)</option>
+                <option value="graphite">Graphite (Warm dark + amber)</option>
+                <option value="carbon">Carbon (Black + IBM blue)</option>
+                <option value="black">Black (Pure black + cyan)</option>
+              </optgroup>
+            </select>
+          </div>
+          
+          <!-- Font Scale Setting -->
+          <div class="setting-group">
+            <label class="setting-label" for="font-scale-slider">Font Scale: <span id="font-scale-value">1x</span></label>
+            <input 
+              type="range" 
+              id="font-scale-slider" 
+              class="slider" 
+              min="0.75" 
+              max="1.5" 
+              step="0.05" 
+              value="1"
+              aria-label="Font size scale"
+            >
+            <div class="slider-labels">
+              <span>0.75x</span>
+              <span>1.5x</span>
+            </div>
+          </div>
+          
+          <!-- Notifications Setting -->
+          <div class="setting-group">
+            <label class="setting-checkbox">
+              <input type="checkbox" id="notifications-toggle" checked />
+              <span>Show notifications</span>
+            </label>
+          </div>
+          
+          <!-- ZIP Backup Setting -->
+          <div class="setting-group">
+            <label class="setting-checkbox">
+              <input type="checkbox" id="zip-backup-toggle" checked />
+              <span>Create ZIP backup on checkpoint</span>
+            </label>
+          </div>
+
+          <!-- Sound Effects Setting (ported from v1 IDE) -->
+          <div class="setting-group">
+            <label class="setting-checkbox">
+              <input type="checkbox" id="sound-effects-toggle" />
+              <span>Sound effects</span>
+            </label>
+          </div>
+
+          <!-- Editor Section (ported from v1 IDE) -->
+          <div class="setting-group">
+            <label class="setting-label">Editor</label>
+            <label class="setting-checkbox">
+              <input type="checkbox" id="word-wrap-toggle" checked />
+              <span>Word Wrap</span>
+            </label>
+            <label class="setting-checkbox">
+              <input type="checkbox" id="line-numbers-toggle" checked />
+              <span>Line Numbers</span>
+            </label>
+            <label class="setting-checkbox">
+              <input type="checkbox" id="auto-save-toggle" />
+              <span>Auto-save</span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- New Project Modal -->
+    <div id="new-project-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="new-project-modal-title">
+      <div class="modal modal-sm">
+        <div class="modal-header">
+          <h2 id="new-project-modal-title" class="modal-title">Create New Project</h2>
+          <button id="close-new-project-btn" class="icon-btn" aria-label="Close dialog">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <input 
+              type="text" 
+              id="new-project-name" 
+              class="input" 
+              placeholder="My Awesome Project!"
+              aria-describedby="project-name-hint"
+            />
+            <p id="project-name-hint" class="form-hint">Any name works — we'll make it URL-safe</p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="cancel-new-project-btn" class="btn btn-outline">Cancel</button>
+          <button id="confirm-new-project-btn" class="btn btn-primary" disabled>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+            Create
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Import Project Modal -->
+    <div id="import-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
+      <div class="modal modal-sm">
+        <div class="modal-header">
+          <h2 id="import-modal-title" class="modal-title">Import Project</h2>
+          <button id="close-import-btn" class="icon-btn" aria-label="Close dialog">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label" for="import-file-input">ZIP File</label>
+            <input 
+              type="file" 
+              id="import-file-input" 
+              class="file-input" 
+              accept=".zip"
+              aria-describedby="import-file-hint"
+            />
+            <p id="import-file-hint" class="form-hint">Select a ZIP archive to import</p>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="import-name-input">Project Name (optional)</label>
+            <input 
+              type="text" 
+              id="import-name-input" 
+              class="input" 
+              placeholder="Auto-generated from file name"
+            />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="cancel-import-btn" class="btn btn-outline">Cancel</button>
+          <button id="confirm-import-btn" class="btn btn-primary" disabled>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Import
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Initialization Error Message (hidden by default) -->
+    <div id="init-error-message" class="init-error hidden" role="alert" aria-live="assertive"></div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container" role="status" aria-live="polite" aria-label="Notifications"></div>
+  </div>
+
+  <!-- ============================================
+       Application Scripts (Barrel Loading System)
+       
+       Loading order:
+       1. boot.js   → Globals, CDN error handling, font detection
+       2. index.js  → Barrel loader (all modules in dependency order)
+       
+       See js/index.js for full dependency graph.
+       ============================================ -->
+  
+  <script src="js/boot.js"></script>
+  <script src="js/index.js"></script>
+  
+  <!-- Noscript Fallback -->
+  <noscript>
+    <style>
+      #app { display: none; }
+      body::after {
+        content: 'SBIDE requires JavaScript to function. Please enable JavaScript in your browser settings.';
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        padding: 2rem;
+        text-align: center;
+        font-family: system-ui, -apple-system, sans-serif;
+        color: #374151;
+        background: #f9fafb;
+      }
+    </style>
+  </noscript>
+</body>
+</html>
