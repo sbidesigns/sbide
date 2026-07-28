@@ -1,0 +1,1298 @@
+     1→/**
+     2→ * SBIDE - LLM Provider Manager
+     3→ * Intelligent rate limit detection, context window tracking, and provider switching
+     4→ * 
+     5→ * Features:
+     6→ * - Automatic rate limit detection and handling
+     7→ * - Context window visualization
+     8→ * - Tiered provider list (free → freemium → paid)
+     9→ * - Smart fallback when rate limited
+    10→ */
+    11→
+    12→const LLMManagerComponent = (() => {
+    13→  // ============================================
+    14→  // LLM Provider Configuration
+    15→  // ============================================
+    16→  
+    17→  /**
+    18→   * Provider Tiers:
+    19→   * - tier 1: 100% Free (no API key required, no signup)
+    20→   * - tier 2: Free API Key (requires signup but free tier available)
+    21→   * - tier 3: Freemium (free with limitations/credit card may be needed)
+    22→   */
+    23→  
+    24→  const PROVIDERS = [
+    25→    // ===== TIER 1: 100% Free (No API Key Required) =====
+    26→    {
+    27→      id: 'z-ai-default',
+    28→      name: 'Z.AI Default',
+    29→      description: 'Built-in temporary provider (rate limited)',
+    30→      tier: 1,
+    31→      requiresApiKey: false,
+    32→      requiresSignup: false,
+    33→      contextWindow: 128000,
+    34→      maxTokensPerRequest: 8192,
+    35→      rateLimit: {
+    36→        requestsPerMinute: 10,
+    37→        requestsPerDay: 100,
+    38→        tokensPerDay: 500000
+    39→      },
+    40→      icon: 'bot',
+    41→      isDefault: true,
+    42→      endpoint: '/api/chat',
+    43→      status: 'available',
+    44→      color: '#6366f1'
+    45→    },
+    46→    {
+    47→      id: 'chatgpt-free',
+    48→      name: 'ChatGPT Free',
+    49→      description: "OpenAI's free web tier via proxy",
+    50→      tier: 1,
+    51→      requiresApiKey: false,
+    52→      requiresSignup: true, // Needs OpenAI account
+    53→      contextWindow: 16384,
+    54→      maxTokensPerRequest: 4096,
+    55→      rateLimit: {
+    56→        requestsPerMinute: 20,
+    57→        requestsPerDay: 50,
+    58→        tokensPerDay: 150000
+    59→      },
+    60→      icon: 'message-circle',
+    61→      endpoint: '/api/chat/providers/openai',
+    62→      status: 'available',
+    63→      color: '#10a37f'
+    64→    },
+    65→    
+    66→    // ===== TIER 2: Free API Key (No Credit Card) =====
+    67→    {
+    68→      id: 'groq',
+    69→      name: 'Groq',
+    70→      description: 'Ultra-fast inference, free tier generous',
+    71→      tier: 2,
+    72→      requiresApiKey: true,
+    73→      requiresSignup: true,
+    74→      requiresCreditCard: false,
+    75→      apiKeyUrl: 'https://console.groq.com/keys',
+    76→      contextWindow: 131072,
+    77→      maxTokensPerRequest: 8192,
+    78→      rateLimit: {
+    79→        requestsPerMinute: 30,
+    80→        requestsPerDay: 14400,
+    81→        tokensPerDay: 6000000
+    82→      },
+    83→      icon: 'zap',
+    84→      endpoint: '/api/chat/providers/groq',
+    85→      status: 'needs-config',
+    86→      color: '#e11d48'
+    87→    },
+    88→    {
+    89→      id: 'together-ai',
+    90→      name: 'Together AI',
+    91→      description: 'Open source models, free credits on signup',
+    92→      tier: 2,
+    93→      requiresApiKey: true,
+    94→      requiresSignup: true,
+    95→      requiresCreditCard: false,
+    96→      apiKeyUrl: 'https://api.together.xyz/settings/api-keys',
+    97→      contextWindow: 128000,
+    98→      maxTokensPerRequest: 8192,
+    99→      rateLimit: {
+   100→        requestsPerMinute: 60,
+   101→        requestsPerDay: 1000,
+   102→        tokensPerDay: 1000000
+   103→      },
+   104→      icon: 'users',
+   105→      endpoint: '/api/chat/providers/together',
+   106→      status: 'needs-config',
+   107→      color: '#3b82f6'
+   108→    },
+   109→    {
+   110→      id: 'mistral',
+   111→      name: 'Mistral AI',
+   112→      description: 'European AI, free tier available',
+   113→      tier: 2,
+   114→      requiresApiKey: true,
+   115→      requiresSignup: true,
+   116→      requiresCreditCard: false,
+   117→      apiKeyUrl: 'https://console.mistral.ai/api-keys/',
+   118→      contextWindow: 131072,
+   119→      maxTokensPerRequest: 8192,
+   120→      rateLimit: {
+   121→        requestsPerMinute: 60,
+   122→        requestsPerDay: 1000,
+   123→        tokensPerDay: 400000
+   124→      },
+   125→      icon: 'wind',
+   126→      endpoint: '/api/chat/providers/mistral',
+   127→      status: 'needs-config',
+   128→      color: '#f97316'
+   129→    },
+   130→    {
+   131→      id: 'huggingface',
+   132→      name: 'HuggingFace Inference',
+   133→      description: 'Open source models, free tier',
+   134→      tier: 2,
+   135→      requiresApiKey: true,
+   136→      requiresSignup: true,
+   137→      requiresCreditCard: false,
+   138→      apiKeyUrl: 'https://huggingface.co/settings/tokens',
+   139→      contextWindow: 16000,
+   140→      maxTokensPerRequest: 4096,
+   141→      rateLimit: {
+   142→        requestsPerMinute: 30,
+   143→        requestsPerDay: 2000,
+   144→        tokensPerDay: 300000
+   145→      },
+   146→      icon: 'heart',
+   147→      endpoint: '/api/chat/providers/huggingface',
+   148→      status: 'needs-config',
+   149→      color: '#ff9d00'
+   150→    },
+   151→    {
+   152→      id: 'cohere',
+   153→      name: 'Cohere',
+   154→      description: 'Enterprise NLP, free trial available',
+   155→      tier: 2,
+   156→      requiresApiKey: true,
+   157→      requiresSignup: true,
+   158→      requiresCreditCard: false,
+   159→      apiKeyUrl: 'https://dashboard.cohere.com/api-keys',
+   160→      contextWindow: 128000,
+   161→      maxTokensPerRequest: 4096,
+   162→      rateLimit: {
+   163→        requestsPerMinute: 100,
+   164→        requestsPerDay: 1000,
+   165→        tokensPerDay: 1000000
+   166→      },
+   167→      icon: 'layers',
+   168→      endpoint: '/api/chat/providers/cohere',
+   169→      status: 'needs-config',
+   170→      color: '#7c3aed'
+   171→    },
+   172→    
+   173→    // ===== TIER 3: Freemium/Paid (May require credit card) =====
+   174→    {
+   175→      id: 'openai',
+   176→      name: 'OpenAI GPT-4o',
+   177→      description: 'Most capable, pay-as-you-go',
+   178→      tier: 3,
+   179→      requiresApiKey: true,
+   180→      requiresSignup: true,
+   181→      requiresCreditCard: true,
+   182→      apiKeyUrl: 'https://platform.openai.com/api-keys',
+   183→      contextWindow: 128000,
+   184→      maxTokensPerRequest: 16384,
+   185→      rateLimit: {
+   186→        requestsPerMinute: 500,
+   187→        requestsPerDay: 10000,
+   188→        tokensPerDay: 5000000
+   189→      },
+   190→      icon: 'sparkles',
+   191→      endpoint: '/api/chat/providers/openai-paid',
+   192→      status: 'needs-config',
+   193→      color: '#10a37f'
+   194→    },
+   195→    {
+   196→      id: 'anthropic',
+   197→      name: 'Anthropic Claude',
+   198→      description: 'Strong reasoning capabilities',
+   199→      tier: 3,
+   200→      requiresApiKey: true,
+   201→      requiresSignup: true,
+   202→      requiresCreditCard: true,
+   203→      apiKeyUrl: 'https://console.anthropic.com/settings/keys',
+   204→      contextWindow: 200000,
+   205→      maxTokensPerRequest: 8192,
+   206→      rateLimit: {
+   207→        requestsPerMinute: 60,
+   208→        requestsPerDay: 1000,
+   209→        tokensPerDay: 2250000
+   210→      },
+   211→      icon: 'brain',
+   212→      endpoint: '/api/chat/providers/anthropic',
+   213→      status: 'needs-config',
+   214→      color: '#cc785c'
+   215→    },
+   216→    {
+   217→      id: 'google-gemini',
+   218→      name: 'Google Gemini Pro',
+   219→      description: 'Multimodal, generous free tier',
+   220→      tier: 3,
+   221→      requiresApiKey: true,
+   222→      requiresSignup: true,
+   223→      requiresCreditCard: false, // Google doesn't require CC for free tier
+   224→      apiKeyUrl: 'https://aistudio.google.com/app/apikey',
+   225→      contextWindow: 1048576,
+   226→      maxTokensPerRequest: 8192,
+   227→      rateLimit: {
+   228→        requestsPerMinute: 60,
+   229→        requestsPerDay: 1500,
+   230→        tokensPerDay: 3200000
+   231→      },
+   232→      icon: 'gem',
+   233→      endpoint: '/api/chat/providers/gemini',
+   234→      status: 'needs-config',
+   235→      color: '#4285f4'
+   236→    }
+   237→  ];
+   238→
+   239→  // ============================================
+   240→  // State
+   241→  // ============================================
+   242→  
+   243→  let currentProvider = null;
+   244→  let providerApiKeys = {};
+   245→  let rateLimitState = {};
+   246→  let contextUsage = {
+   247→    used: 0,
+   248→    total: 128000,
+   249→    percentage: 0,
+   250→    messages: [],
+   251→    messageCount: 0
+   252→  };
+   253→  let requestHistory = [];
+   254→  let modalElement = null;
+   255→  let onProviderChange = null;
+   256→
+   257→  // ============================================
+   258→  // Initialization
+   259→  // ============================================
+   260→  
+   261→  function init(options = {}) {
+   262→    onProviderChange = options.onProviderChange || null;
+   263→    
+   264→    // Load saved state
+   265→    loadSavedState();
+   266→    
+   267→    // Set default provider if none selected
+   268→    if (!currentProvider) {
+   269→      currentProvider = PROVIDERS.find(p => p.isDefault);
+   270→    }
+   271→    
+   272→    // Setup global error listener for rate limit detection
+   273→    setupRateLimitDetection();
+   274→    
+   275→    console.log(`LLM Manager initialized with provider: ${currentProvider?.name}`);
+   276→  }
+   277→
+   278→  function loadSavedState() {
+   279→    try {
+   280→      const saved = localStorage.getItem('llm-manager-state');
+   281→      if (saved) {
+   282→        const parsed = JSON.parse(saved);
+   283→        
+   284→        // Restore selected provider
+   285→        if (parsed.currentProviderId) {
+   286→          const provider = PROVIDERS.find(p => p.id === parsed.currentProviderId);
+   287→          if (provider) currentProvider = provider;
+   288→        }
+   289→        
+   290→        // Restore API keys (basic obfuscation - not true encryption but better than plaintext)
+   291→        if (parsed.providerApiKeys) {
+   292→          providerApiKeys = {};
+   293→          for (const [key, value] of Object.entries(parsed.providerApiKeys)) {
+   294→            try {
+   295→              // Attempt to decode - if it fails, store as-is (legacy format)
+   296→              providerApiKeys[key] = atob(value) || value;
+   297→            } catch {
+   298→              providerApiKeys[key] = value; // Legacy plaintext key
+   299→            }
+   300→          }
+   301→        }
+   302→        
+   303→        // Restore rate limit state
+   304→        if (parsed.rateLimitState) {
+   305→          rateLimitState = parsed.rateLimitState;
+   306→        }
+   307→      }
+   308→    } catch (e) {
+   309→      console.error('Failed to load LLM manager state:', e);
+   310→    }
+   311→  }
+   312→
+   313→  function saveState() {
+   314→    try {
+   315→      // Basic obfuscation for API keys (base64 encoding)
+   316→      // NOTE: This is NOT secure encryption - it prevents casual inspection only
+   317→      // Real implementations should use proper encryption with a user-provided passphrase
+   318→      const obfuscatedKeys = {};
+   319→      for (const [key, value] of Object.entries(providerApiKeys)) {
+   320→        if (value) {
+   321→          obfuscatedKeys[key] = btoa(value);
+   322→        }
+   323→      }
+   324→      
+   325→      localStorage.setItem('llm-manager-state', JSON.stringify({
+   326→        currentProviderId: currentProvider?.id,
+   327→        providerApiKeys: obfuscatedKeys,
+   328→        rateLimitState
+   329→      }));
+   330→    } catch (e) {
+   331→      console.error('Failed to save LLM manager state:', e);
+   332→    }
+   333→  }
+   334→
+   335→  // ============================================
+   336→  // Rate Limit Detection
+   337→  // ============================================
+   338→  
+   339→  function setupRateLimitDetection() {
+   340→    // Use observer pattern instead of monkey-patching fetch (anti-pattern)
+   341→    // We hook into the API client's request/response cycle instead
+   342→    
+   343→    // Listen for custom events from the API module when requests complete
+   344→    document.addEventListener('api:requestCompleted', (e) => {
+   345→      if (e.detail?.response) {
+   346→        trackRequest(e.detail.response);
+   347→      }
+   348→    });
+   349→    
+   350→    // Also patch fetch but with safety checks and cleanup awareness
+   351→    if (!window._originalFetch) {
+   352→      window._originalFetch = window.fetch.bind(window);
+   353→      window.fetch = async function(...args) {
+   354→        try {
+   355→          const response = await window._originalFetch(...args);
+   356→          trackRequest(response);
+   357→          return response;
+   358→        } catch (error) {
+   359→          throw error;
+   360→        }
+   361→      };
+   362→    }
+   363→  }
+   364→
+   365→  function trackRequest(response) {
+   366→    // Get URL from response object
+   367→    const url = response.url || '';
+   368→    
+   369→    // Only track chat-related requests
+   370→    if (!url.includes('/api/chat') && !url.includes('/chat')) return;
+   371→    
+   372→    const now = Date.now();
+   373→    const requestId = `${now}-${Math.random().toString(36).substring(2, 11)}`;
+   374→    
+   375→    requestHistory.push({
+   376→      id: requestId,
+   377→      timestamp: now,
+   378→      status: response.status,
+   379→      providerId: currentProvider?.id
+   380→    });
+   381→    
+   382→    // Clean old entries (keep last hour) and cap at MAX_ENTRIES to prevent memory leaks
+   383→    const oneHourAgo = now - 3600000;
+   384→    requestHistory = requestHistory.filter(r => r.timestamp > oneHourAgo);
+   385→    
+   386→    // Safety cap: never keep more than 1000 entries (prevents memory leak under edge cases)
+   387→    const MAX_REQUEST_HISTORY = 1000;
+   388→    if (requestHistory.length > MAX_REQUEST_HISTORY) {
+   389→      requestHistory = requestHistory.slice(-MAX_REQUEST_HISTORY);
+   390→    }
+   391→    
+   392→    // Check for rate limit indicators
+   393→    checkRateLimitIndicators(response);
+   394→    
+   395→    // Update context usage estimate
+   396→    updateContextUsageEstimate();
+   397→  }
+   398→
+   399→  function checkRateLimitIndicators(response) {
+   400→    const providerId = currentProvider?.id;
+   401→    
+   402→    // HTTP 429 = Too Many Requests (explicit rate limit)
+   403→    if (response.status === 429) {
+   404→      handleRateLimitHit('explicit_429');
+   405→      return;
+   406→    }
+   407→    
+   408→    // Check for rate limit headers
+   409→    const remainingRequests = response.headers.get('X-RateLimit-Remaining');
+   410→    const retryAfter = response.headers.get('Retry-After');
+   411→    const rateLimitReset = response.headers.get('X-RateLimit-Reset');
+   412→    
+   413→    if (remainingRequests !== null && parseInt(remainingRequests) <= 5) {
+   414→      handleRateLimitHit('low_remaining', { remaining: parseInt(remainingRequests) });
+   415→    }
+   416→    
+   417→    if (retryAfter) {
+   418→      handleRateLimitHit('retry_after', { retryAfterSeconds: parseInt(retryAfter) });
+   419→    }
+   420→    
+   421→    // Check for common rate limit error patterns in body (async)
+   422→    detectRateLimitFromBody(response);
+   423→  }
+   424→
+   425→  async function detectRateLimitFromBody(response) {
+   426→    try {
+   427→      // Only inspect the body for rate-limit signals when the HTTP status
+   428→      // is plausibly a rate-limit response. A 404 (not found), 400 (bad
+   429→      // request), 401 (unauthorized), 500 (server error) etc. are NOT
+   430→      // rate limits — even if the body happens to contain the substring
+   431→      // "429" (which the previous /429/i regex matched inside URLs, hex
+   432→      // colors, and Next.js chunk hashes in 404 HTML pages, causing
+   433→      // false-positive rate-limit toasts on a static deployment).
+   434→      const status = response.status;
+   435→      const isPlausibleRateLimitStatus =
+   436→        status === 429 ||
+   437→        status === 503 ||
+   438→        status === 420 ||  // Enhance your calm (Twitter/Cloudflare)
+   439→        status === 502 ||  // Bad gateway (may be rate-related)
+   440→        status === 503;   // Service unavailable
+   441→      if (!isPlausibleRateLimitStatus) {
+   442→        return;
+   443→      }
+   444→
+   445→      const clone = response.clone();
+   446→      const text = await clone.text();
+   447→
+   448→      // Patterns are made specific (word-boundaried or phrasal) so they
+   449→      // don't match arbitrary substrings inside HTML/JSON error bodies.
+   450→      // The bare /429/i pattern is intentionally REMOVED — if the server
+   451→      // wanted to signal a rate limit it would have returned HTTP 429
+   452→      // (handled above) or one of the explicit phrases below.
+   453→      const rateLimitPatterns = [
+   454→        /\brate[- ]?limit\b/i,
+   455→        /\btoo many requests\b/i,
+   456→        /\bquota exceeded\b/i,
+   457→        /\bthrottl(?:ed|ing)?\b/i,
+   458→        /\btry again (?:later|in \d+ (?:second|minute)s?)\b/i,
+   459→        /\brequest limit (?:exceeded|reached)\b/i
+   460→      ];
+   461→
+   462→      const isRateLimited = rateLimitPatterns.some(pattern => pattern.test(text));
+   463→
+   464→      if (isRateLimited) {
+   465→        handleRateLimitHit('error_pattern', { message: text.substring(0, 200) });
+   466→      }
+   467→    } catch (e) {
+   468→      // Ignore body parsing errors
+   469→    }
+   470→  }
+   471→
+   472→  function handleRateLimitHit(reason, details = {}) {
+   473→    const providerId = currentProvider?.id;
+   474→    
+   475→    // Update rate limit state
+   476→    if (!rateLimitState[providerId]) {
+   477→      rateLimitState[providerId] = {
+   478→        hitCount: 0,
+   479→        lastHit: null,
+   480→        isCurrentlyLimited: false,
+   481→        resetTime: null,
+   482→        reasons: []
+   483→      };
+   484→    }
+   485→    
+   486→    const state = rateLimitState[providerId];
+   487→    state.hitCount++;
+   488→    state.lastHit = Date.now();
+   489→    state.isCurrentlyLimited = true;
+   490→    state.reasons.push({ reason, details, timestamp: Date.now() });
+   491→    
+   492→    // Estimate reset time (default 60 seconds if not specified)
+   493→    const resetDelay = details.retryAfterSeconds ? details.retryAfterSeconds * 1000 : 60000;
+   494→    state.resetTime = Date.now() + resetDelay;
+   495→    
+   496→    // Save state
+   497→    saveState();
+   498→    
+   499→    // Show switcher modal after multiple hits
+   500→    if (state.hitCount >= 2) {
+   501→      showSwitcherModal({ reason: 'rate_limited', providerId, details });
+   502→    }
+   503→    
+   504→    // Dispatch custom event for UI updates
+   505→    window.dispatchEvent(new CustomEvent('llm:rateLimit', {
+   506→      detail: { providerId, reason, details, state }
+   507→    }));
+   508→    
+   509→    console.warn(`Rate limit hit for ${providerId}:`, reason, details);
+   510→  }
+   511→
+   512→  function checkIfRateLimitExpired() {
+   513→    const now = Date.now();
+   514→    let changed = false;
+   515→    
+   516→    Object.keys(rateLimitState).forEach(providerId => {
+   517→      const state = rateLimitState[providerId];
+   518→      if (state.isCurrentlyLimited && state.resetTime && now > state.resetTime) {
+   519→        state.isCurrentlyLimited = false;
+   520→        changed = true;
+   521→      }
+   522→    });
+   523→    
+   524→    if (changed) {
+   525→      saveState();
+   526→      window.dispatchEvent(new CustomEvent('llm:rateLimitReset'));
+   527→    }
+   528→  }
+   529→
+   530→  // ============================================
+   531→  // Context Window Tracking
+   532→  // ============================================
+   533→  
+   534→  function updateContextUsageEstimate() {
+   535→    const messages = window.IDEState?.get('messages') || [];
+   536→    
+   537→    // Calculate approximate token count (rough: 1 token ≈ 4 chars for English)
+   538→    let totalChars = 0;
+   539→    const messageInfo = messages.map(m => ({
+   540→      role: m.role,
+   541→      contentLength: m.content?.length || 0,
+   542→      timestamp: m.timestamp
+   543→    }));
+   544→    
+   545→    totalChars = messageInfo.reduce((sum, m) => sum + m.contentLength, 0);
+   546→    
+   547→    // Add overhead for system prompt, formatting, etc.
+   548→    totalChars += 1000; 
+   549→    
+   550→    // Convert to approximate tokens
+   551→    const estimatedTokens = Math.ceil(totalChars / 4);
+   552→    
+   553→    contextUsage = {
+   554→      used: estimatedTokens,
+   555→      total: currentProvider?.contextWindow || 128000,
+   556→      percentage: Math.min(100, Math.round((estimatedTokens / (currentProvider?.contextWindow || 128000)) * 100)),
+   557→      messages: messageInfo,
+   558→      messageCount: messages.length
+   559→    };
+   560→    
+   561→    // Dispatch event for UI updates
+   562→    window.dispatchEvent(new CustomEvent('llm:contextUpdate', {
+   563→      detail: contextUsage
+   564→    }));
+   565→  }
+   566→
+   567→  function getContextUsage() {
+   568→    // Pure getter — return the last computed context usage.
+   569→    //
+   570→    // IMPORTANT: do NOT call updateContextUsageEstimate() here. That function
+   571→    // dispatches an 'llm:contextUpdate' event, and app.js listens for that
+   572→    // event by calling updateContextWindowIndicator() → which calls
+   573→    // getContextUsage() → which would re-dispatch → infinite recursion
+   574→    // (Maximum call stack size exceeded).
+   575→    //
+   576→    // The estimate is refreshed by updateContextUsageEstimate() on its own
+   577→    // schedule (called from trackRequest / setProvider / message events),
+   578→    // so the cached value is always reasonably fresh. If we somehow have
+   579→    // never computed it (fresh page load), compute it once here WITHOUT
+   580→    // dispatching the event.
+   581→    if (!contextUsage) {
+   582→      try {
+   583→        const msgs = (window.IDEState?.get?.('messages')) || [];
+   584→        const totalChars = msgs.reduce((n, m) => n + ((m?.content || '').length), 0);
+   585→        const total = currentProvider?.contextWindow || 128000;
+   586→        const used = Math.ceil(totalChars / 4);
+   587→        contextUsage = {
+   588→          used,
+   589→          total,
+   590→          percentage: Math.min(100, Math.round((used / total) * 100)),
+   591→          messages: [],
+   592→          messageCount: msgs.length
+   593→        };
+   594→      } catch (e) {
+   595→        contextUsage = { used: 0, total: 128000, percentage: 0, messages: [], messageCount: 0 };
+   596→      }
+   597→    }
+   598→    return contextUsage;
+   599→  }
+   600→
+   601→  // ============================================
+   602→  // Provider Management
+   603→  // ============================================
+   604→  
+   605→  function getProviders(tierFilter = null) {
+   606→    if (!tierFilter) return PROVIDERS;
+   607→    return PROVIDERS.filter(p => p.tier === tierFilter);
+   608→  }
+   609→
+   610→  function getCurrentProvider() {
+   611→    return currentProvider;
+   612→  }
+   613→
+   614→  function setProvider(providerId, apiKey = null) {
+   615→    const provider = PROVIDERS.find(p => p.id === providerId);
+   616→    if (!provider) {
+   617→      console.error(`Provider not found: ${providerId}`);
+   618→      return false;
+   619→    }
+   620→    
+   621→    currentProvider = provider;
+   622→    
+   623→    if (apiKey) {
+   624→      providerApiKeys[providerId] = apiKey;
+   625→    }
+   626→    
+   627→    // Update context window for new provider
+   628→    contextUsage.total = provider.contextWindow;
+   629→    
+   630→    saveState();
+   631→    
+   632→    // Notify listeners
+   633→    if (onProviderChange) {
+   634→      onProviderChange(provider);
+   635→    }
+   636→    
+   637→    window.dispatchEvent(new CustomEvent('llm:providerChanged', {
+   638→      detail: { provider }
+   639→    }));
+   640→    
+   641→    if (IDEUtils) {
+   642→      IDEUtils.showToast(`Switched to ${provider.name}`, 'success');
+   643→    }
+   644→    
+   645→    return true;
+   646→  }
+   647→
+   648→  function setApiKey(providerId, apiKey) {
+   649→    providerApiKeys[providerId] = apiKey;
+   650→    saveState();
+   651→  }
+   652→
+   653→  function getApiKey(providerId) {
+   654→    return providerApiKeys[providerId] || null;
+   655→  }
+   656→
+   657→  function getProviderStatus(providerId) {
+   658→    const provider = PROVIDERS.find(p => p.id === providerId);
+   659→    const hasKey = !!providerApiKeys[providerId];
+   660→    const rateLimited = rateLimitState[providerId]?.isCurrentlyLimited || false;
+   661→    
+   662→    if (!hasKey && provider.requiresApiKey) {
+   663→      return 'needs-config';
+   664→    }
+   665→    
+   666→    if (rateLimited) {
+   667→      return 'rate-limited';
+   668→    }
+   669→    
+   670→    return 'available';
+   671→  }
+   672→
+   673→  // ============================================
+   674→  // Switcher Modal
+   675→  // ============================================
+   676→  
+   677→  function showSwitcherModal(context = {}) {
+   678→    // Close existing modal
+   679→    closeSwitcherModal();
+   680→    
+   681→    checkIfRateLimitExpired();
+   682→    
+   683→    modalElement = document.createElement('div');
+   684→    modalElement.className = 'modal-overlay llm-switcher-modal';
+   685→    modalElement.setAttribute('role', 'dialog');
+   686→    modalElement.setAttribute('aria-modal', 'true');
+   687→    modalElement.setAttribute('aria-labelledby', 'llm-switcher-title');
+   688→    
+   689→    const { reason } = context;
+   690→    const isRateLimited = reason === 'rate_limited';
+   691→    
+   692→    modalElement.innerHTML = renderModalContent(isRateLimited, context);
+   693→    
+   694→    document.body.appendChild(modalElement);
+   695→    
+   696→    // Wire up events
+   697→    wireUpModalEvents();
+   698→    
+   699→    // Focus management
+   700→    setTimeout(() => {
+   701→      const closeBtn = modalElement.querySelector('.modal-close-btn');
+   702→      if (closeBtn) closeBtn.focus();
+   703→    }, 100);
+   704→  }
+   705→
+   706→  function renderModalContent(isRateLimited, context) {
+   707→    const tier1Providers = PROVIDERS.filter(p => p.tier === 1);
+   708→    const tier2Providers = PROVIDERS.filter(p => p.tier === 2);
+   709→    const tier3Providers = PROVIDERS.filter(p => p.tier === 3);
+   710→    
+   711→    const icons = {
+   712→      'bot': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M8 15h.01M16 15h.01M12 17h.01"/></svg>',
+   713→      'message-circle': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>',
+   714→      'zap': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
+   715→      'users': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>',
+   716→      'wind': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.59 4.59A2 2 0 1111 8H2m10.59 11.41A2 2 0 1014 16H2m15.73-8.27A2.5 2.5 0 1119.5 12H2"/></svg>',
+   717→      'heart': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>',
+   718→      'layers': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>',
+   719→      'sparkles': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.912 5.813a2 2 0 001.275 1.275L21 12l-5.813 1.912a2 2 0 00-1.275 1.275L12 21l-1.912-5.813a2 2 0 00-1.275-1.275L3 12l5.813-1.912a2 2 0 001.275-1.275L12 3z"/></svg>',
+   720→      'brain': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.5 2A2.5 2.5 0 0112 4.5v15a2.5 2.5 0 01-4.96.44 2.5 2.5 0 01-2.96-3.08 3 3 0 01-.34-5.58 2.5 2.5 0 011.32-4.24 2.5 2.5 0 011.98-3A2.5 2.5 0 019.5 2z"/><path d="M14.5 2A2.5 2.5 0 0012 4.5v15a2.5 2.5 0 004.96.44 2.5 2.5 0 002.96-3.08 3 3 0 00.34-5.58 2.5 2.5 0 00-1.32-4.24 2.5 2.5 0 00-1.98-3A2.5 2.5 0 0014.5 2z"/></svg>',
+   721→      'gem': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 9 12 22 22 9 12 2"/><line x1="2" y1="9" x2="12" y2="22"/><line x1="22" y1="9" x2="12" y2="22"/></svg>'
+   722→    };
+   723→
+   724→    const renderProviderCard = (provider) => {
+   725→      const isSelected = currentProvider?.id === provider.id;
+   726→      const status = getProviderStatus(provider.id);
+   727→      const hasKey = !!providerApiKeys[provider.id];
+   728→      const isRateLimited = rateLimitState[provider.id]?.isCurrentlyLimited;
+   729→      const savedKey = providerApiKeys[provider.id] || '';
+   730→      // Create masked version of saved key for display
+   731→      const maskedKey = savedKey ? maskApiKey(savedKey) : '';
+   732→      
+   733→      // Determine status badge state
+   734→      let statusBadge = '';
+   735→      if (isRateLimited) {
+   736→        // Rate limited: Red X badge with countdown
+   737→        const resetTime = rateLimitState[provider.id]?.resetTime;
+   738→        const timeUntil = resetTime ? formatTimeUntil(resetTime) : 'unknown';
+   739→        statusBadge = `
+   740→          <button class="status-badge status-rate-limited" 
+   741→                  data-provider-id="${provider.id}"
+   742→                  title="Rate limited - resets in ${timeUntil}. Click for details."
+   743→                  aria-label="Rate limited, resets in ${timeUntil}">
+   744→            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+   745→              <circle cx="12" cy="12" r="10"/>
+   746→              <line x1="15" y1="9" x2="9" y2="15"/>
+   747→              <line x1="9" y1="9" x2="15" y2="15"/>
+   748→            </svg>
+   749→            <span class="status-countdown" data-reset-time="${resetTime || ''}">${timeUntil}</span>
+   750→          </button>`;
+   751→      } else if (isSelected || status === 'available') {
+   752→        // Active/Available: Green checkmark badge
+   753→        statusBadge = `
+   754→          <span class="status-badge status-available" 
+   755→                title="${isSelected ? 'Currently active' : 'Available'}"
+   756→                role="status"
+   757→                aria-label="${isSelected ? 'Active' : 'Available'}">
+   758→            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+   759→              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+   760→              <polyline points="22 4 12 14.01 9 11.01"/>
+   761→            </svg>
+   762→          </span>`;
+   763→      } else if (status === 'needs-config') {
+   764→        // Needs config: Gray warning badge
+   765→        statusBadge = `
+   766→          <span class="status-badge status-needs-config"
+   767→                title="Requires API key configuration"
+   768→                role="status"
+   769→                aria-label="Needs configuration">
+   770→            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+   771→              <circle cx="12" cy="12" r="10"/>
+   772→              <line x1="12" y1="8" x2="12" y2="12"/>
+   773→              <line x1="12" y1="16" x2="12.01" y2="16"/>
+   774→            </svg>
+   775→          </span>`;
+   776→      }
+   777→      
+   778→      return `
+   779→        <div class="llm-provider-card ${isSelected ? 'selected' : ''} ${isRateLimited ? 'rate-limited' : ''} ${status === 'needs-config' && !hasKey ? 'needs-config' : ''}" 
+   780→             data-provider-id="${provider.id}"
+   781→             data-requires-key="${provider.requiresApiKey}"
+   782→             data-has-key="${hasKey}">
+   783→          <div class="provider-header">
+   784→            <div class="provider-icon" style="color: ${provider.color}">
+   785→              ${icons[provider.icon] || icons['bot']}
+   786→            </div>
+   787→            <div class="provider-info">
+   788→              <div class="provider-name">${provider.name}</div>
+   789→              <div class="provider-description">${provider.description}</div>
+   790→            </div>
+   791→            ${statusBadge}
+   792→            ${hasKey && !isRateLimited ? '<span class="provider-badge saved">✓ Key Saved</span>' : ''}
+   793→          </div>
+   794→          
+   795→          <div class="provider-specs">
+   796→            <div class="spec-item">
+   797→              <span class="spec-label">Context</span>
+   798→              <span class="spec-value">${formatNumber(provider.contextWindow)}</span>
+   799→            </div>
+   800→            <div class="spec-item">
+   801→              <span class="spec-label">Max output</span>
+   802→              <span class="spec-value">${formatNumber(provider.maxTokensPerRequest)} tk</span>
+   803→            </div>
+   804→            <div class="spec-item">
+   805→              <span class="spec-label">Tier</span>
+   806→              <span class="spec-value tier-${provider.tier}">
+   807→                ${provider.tier === 1 ? '🆓 Free' : provider.tier === 2 ? '🔑 Free Key' : '💎 Pro'}
+   808→              </span>
+   809→            </div>
+   810→          </div>
+   811→          
+   812→          ${isRateLimited ? `
+   813→            <div class="provider-warning rate-limit-expanded">
+   814→              <div class="rate-limit-header">
+   815→                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="warning-icon">
+   816→                  <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+   817→                  <line x1="12" y1="9" x2="12" y2="13"/>
+   818→                  <line x1="12" y1="17" x2="12.01" y2="17"/>
+   819→                </svg>
+   820→                <div class="rate-limit-info">
+   821→                  <strong>Rate Limited</strong>
+   822→                  <span class="rate-limit-timer" data-reset-time="${rateLimitState[provider.id]?.resetTime || ''}">
+   823→                    Reseting in ${formatTimeUntil(rateLimitState[provider.id]?.resetTime)}
+   824→                  </span>
+   825→                </div>
+   826→              </div>
+   827→              <div class="rate-limit-progress">
+   828→                <div class="rate-limit-bar"></div>
+   829→              </div>
+   830→              <p class="rate-limit-hint">This provider will automatically become available when the rate limit expires, or switch to another provider now.</p>
+   831→            </div>
+   832→          ` : ''}
+   833→          
+   834→          ${provider.requiresApiKey ? `
+   835→            <div class="provider-api-key-section">
+   836→              <label class="api-key-label">
+   837→                API Key
+   838→                ${hasKey ? '<span class="key-saved-indicator">✓ Saved</span>' : ''}
+   839→              </label>
+   840→              ${hasKey ? `
+   841→                <!-- Key is saved: show masked display with edit/clear options -->
+   842→                <div class="saved-key-display">
+   843→                  <span class="masked-key" title="API key is saved and will be used automatically">${maskedKey}</span>
+   844→                  <button class="icon-btn edit-key-btn" data-provider-id="${provider.id}" title="Edit API key">
+   845→                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+   846→                  </button>
+   847→                  <button class="icon-btn clear-key-btn" data-provider-id="${provider.id}" title="Remove saved API key">
+   848→                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+   849→                  </button>
+   850→                </div>
+   851→                <input type="password" class="api-key-input hidden" placeholder="Enter new API key..." 
+   852→                       data-provider-id="${provider.id}" value="${savedKey}" />
+   853→              ` : `
+   854→                <!-- No key saved: show input field -->
+   855→                <input type="password" class="api-key-input" placeholder="Enter API key..." 
+   856→                       data-provider-id="${provider.id}" />
+   857→              `}
+   858→              ${provider.apiKeyUrl ? `
+   859→                <a href="${provider.apiKeyUrl}" target="_blank" rel="noopener" class="get-api-key-link">
+   860→                  Get free API key →
+   861→                </a>
+   862→              ` : ''}
+   863→            </div>
+   864→          ` : ''}
+   865→          
+   866→          <button class="btn ${isSelected ? 'btn-primary' : 'btn-outline'} select-provider-btn"
+   867→                  data-provider-id="${provider.id}"
+   868→                  ${status === 'needs-config' && !hasKey ? 'disabled' : ''}>
+   869→            ${isSelected ? '✓ Using' : 'Select'}
+   870→          </button>
+   871→        </div>
+   872→      `;
+   873→    };
+   874→
+   875→    return `
+   876→      <div class="modal modal-lg llm-switcher-content">
+   877→        <div class="modal-header">
+   878→          <h2 class="modal-title" id="llm-switcher-title">
+   879→            ${isRateLimited ? '⚠️ Rate Limit Detected' : '🔄 Switch LLM Provider'}
+   880→          </h2>
+   881→          <button class="icon-btn modal-close-btn" aria-label="Close dialog">
+   882→            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   883→              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+   884→            </svg>
+   885→          </button>
+   886→        </div>
+   887→        
+   888→        <div class="modal-body">
+   889→          ${isRateLimited ? `
+   890→            <div class="rate-limit-alert">
+   891→              <div class="alert-icon">⚡</div>
+   892→              <div class="alert-content">
+   893→                <strong>Current provider hit rate limits</strong>
+   894→                <p>Choose a different provider to continue without interruption.</p>
+   895→              </div>
+   896→            </div>
+   897→          ` : ''}
+   898→          
+   899→          <!-- Current Status -->
+   900→          <div class="current-provider-status">
+   901→            <div class="status-label">Current Provider</div>
+   902→            <div class="status-value" style="--provider-color: ${currentProvider?.color || '#6366f1'}">
+   903→              <span class="status-dot"></span>
+   904→              ${currentProvider?.name || 'None'} · 
+   905→              Context: ${contextUsage.percentage}% used (${formatNumber(contextUsage.used)}/${formatNumber(contextUsage.total)})
+   906→            </div>
+   907→          </div>
+   908→          
+   909→          <!-- Tier 1: 100% Free -->
+   910→          <section class="provider-tier-section">
+   911→            <h3 class="tier-title">
+   912→              <span class="tier-icon">🆓</span>
+   913→              100% Free Providers
+   914→              <span class="tier-subtitle">No signup or API key required</span>
+   915→            </h3>
+   916→            <div class="providers-grid">
+   917→              ${tier1Providers.map(renderProviderCard).join('')}
+   918→            </div>
+   919→          </section>
+   920→          
+   921→          <!-- Tier 2: Free API Key -->
+   922→          <section class="provider-tier-section">
+   923→            <h3 class="tier-title">
+   924→              <span class="tier-icon">🔑</span>
+   925→              Free API Key Providers
+   926→              <span class="tier-subtitle">Free signup, no credit card required</span>
+   927→            </h3>
+   928→            <div class="providers-grid">
+   929→              ${tier2Providers.map(renderProviderCard).join('')}
+   930→            </div>
+   931→          </section>
+   932→          
+   933→          <!-- Tier 3: Freemium/Paid -->
+   934→          <details class="provider-tier-details">
+   935→            <summary class="tier-summary">
+   936→              <span class="tier-icon">💎</span>
+   937→              Premium Providers
+   938→              <span class="tier-subtitle">May require credit card</span>
+   939→            </summary>
+   940→            <div class="providers-grid">
+   941→              ${tier3Providers.map(renderProviderCard).join('')}
+   942→            </div>
+   943→          </details>
+   944→        </div>
+   945→        
+   946→        <div class="modal-footer">
+   947→          <button class="btn btn-outline close-switcher-btn">Close</button>
+   948→        </div>
+   949→      </div>
+   950→    `;
+   951→  }
+   952→
+   953→  function wireUpModalEvents() {
+   954→    if (!modalElement) return;
+   955→    
+   956→    // Close button
+   957→    modalElement.querySelector('.close-switcher-btn')?.addEventListener('click', closeSwitcherModal);
+   958→    modalElement.querySelector('.modal-close-btn')?.addEventListener('click', closeSwitcherModal);
+   959→    
+   960→    // Click outside to close
+   961→    modalElement.addEventListener('click', (e) => {
+   962→      if (e.target === modalElement) closeSwitcherModal();
+   963→    });
+   964→    
+   965→    // Escape key
+   966→    document.addEventListener('keydown', handleEscapeKey);
+   967→    
+   968→    // Provider selection buttons
+   969→    modalElement.querySelectorAll('.select-provider-btn').forEach(btn => {
+   970→      btn.addEventListener('click', () => {
+   971→        const providerId = btn.dataset.providerId;
+   972→        const providerCard = btn.closest('.llm-provider-card');
+   973→        const keyInput = providerCard.querySelector('.api-key-input');
+   974→        const apiKey = keyInput?.value?.trim();
+   975→        
+   976→        if (setProvider(providerId, apiKey)) {
+   977→          closeSwitcherModal();
+   978→        }
+   979→      });
+   980→    });
+   981→    
+   982→    // API key inputs - enable/disable select button + auto-save
+   983→    modalElement.querySelectorAll('.api-key-input').forEach(input => {
+   984→      input.addEventListener('input', () => {
+   985→        const providerId = input.dataset.providerId;
+   986→        const card = input.closest('.llm-provider-card');
+   987→        const selectBtn = card.querySelector('.select-provider-btn');
+   988→        
+   989→        if (selectBtn) {
+   990→          selectBtn.disabled = !input.value.trim();
+   991→        }
+   992→      });
+   993→      
+   994→      // Auto-save key on blur (when user leaves the input)
+   995→      input.addEventListener('blur', () => {
+   996→        const providerId = input.dataset.providerId;
+   997→        const keyValue = input.value.trim();
+   998→        
+   999→        if (keyValue) {
+  1000→          setApiKey(providerId, keyValue);
+  1001→          const card = input.closest('.llm-provider-card');
+  1002→          const provider = PROVIDERS.find(p => p.id === providerId);
+  1003→          showSaveConfirmation(card, provider?.name || providerId);
+  1004→          console.log(`✅ API key saved for ${providerId}`);
+  1005→        }
+  1006→      });
+  1007→      
+  1008→      // Save on Enter key
+  1009→      input.addEventListener('keydown', (e) => {
+  1010→        if (e.key === 'Enter') {
+  1011→          e.preventDefault();
+  1012→          input.blur(); // Trigger save via blur event
+  1013→        }
+  1014→      });
+  1015→    });
+  1016→
+  1017→    // Edit key buttons - toggle visibility of input
+  1018→    modalElement.querySelectorAll('.edit-key-btn').forEach(btn => {
+  1019→      btn.addEventListener('click', (e) => {
+  1020→        e.stopPropagation();
+  1021→        const providerId = btn.dataset.providerId;
+  1022→        const card = btn.closest('.llm-provider-card');
+  1023→        const savedDisplay = card.querySelector('.saved-key-display');
+  1024→        const keyInput = card.querySelector('.api-key-input');
+  1025→        
+  1026→        if (savedDisplay && keyInput) {
+  1027→          savedDisplay.classList.add('hidden');
+  1028→          keyInput.classList.remove('hidden');
+  1029→          keyInput.focus();
+  1030→        }
+  1031→      });
+  1032→    });
+  1033→
+  1034→    // Clear key buttons - remove saved key
+  1035→    modalElement.querySelectorAll('.clear-key-btn').forEach(btn => {
+  1036→      btn.addEventListener('click', (e) => {
+  1037→        e.stopPropagation();
+  1038→        const providerId = btn.dataset.providerId;
+  1039→        const card = btn.closest('.llm-provider-card');
+  1040→        const provider = PROVIDERS.find(p => p.id === providerId);
+  1041→        
+  1042→        // Confirm before clearing
+  1043→        if (confirm(`Remove saved API key for ${provider?.name || providerId}?`)) {
+  1044→          delete providerApiKeys[providerId];
+  1045→          saveState();
+  1046→          
+  1047→          // Refresh the modal to show updated state
+  1048→          closeSwitcherModal();
+  1049→          showSwitcherModal();
+  1050→          
+  1051→          if (window.IDEUtils) {
+  1052→            IDEUtils.showToast(`API key removed for ${provider?.name || providerId}`, 'info', 3000);
+  1053→          }
+  1054→        }
+  1055→      });
+  1056→    });
+  1057→
+  1058→    // Rate limited badge click - show details or alternative providers
+  1059→    modalElement.querySelectorAll('.status-rate-limited').forEach(badge => {
+  1060→      badge.addEventListener('click', (e) => {
+  1061→        e.stopPropagation();
+  1062→        const providerId = badge.dataset.providerId;
+  1063→        const state = rateLimitState[providerId];
+  1064→        
+  1065→        if (state && window.IDEUtils) {
+  1066→          const resetTime = formatTimeUntil(state.resetTime);
+  1067→          IDEUtils.showToast(
+  1068→            `Rate limit active. Resets in ${resetTime}. Try another provider.`,
+  1069→            'warning',
+  1070→            4000
+  1071→          );
+  1072→        }
+  1073→      });
+  1074→    });
+  1075→
+  1076→    // Start countdown timers for rate limited providers
+  1077→    startCountdownTimers();
+  1078→    
+  1079→    // Provider cards - click to select (if configured)
+  1080→    modalElement.querySelectorAll('.llm-provider-card:not(.needs-config)').forEach(card => {
+  1081→      card.addEventListener('click', (e) => {
+  1082→        // Don't trigger if clicking on input/button inside
+  1083→        if (e.target.closest('input, button, a')) return;
+  1084→        
+  1085→        const providerId = card.dataset.providerId;
+  1086→        if (setProvider(providerId)) {
+  1087→          closeSwitcherModal();
+  1088→        }
+  1089→      });
+  1090→    });
+  1091→  }
+  1092→
+  1093→  function handleEscapeKey(e) {
+  1094→    if (e.key === 'Escape' && modalElement) {
+  1095→      closeSwitcherModal();
+  1096→    }
+  1097→  }
+  1098→
+  1099→  function closeSwitcherModal() {
+  1100→    if (modalElement) {
+  1101→      modalElement.remove();
+  1102→      modalElement = null;
+  1103→      document.removeEventListener('keydown', handleEscapeKey);
+  1104→    }
+  1105→  }
+  1106→
+  1107→  // ============================================
+  1108→  // Utility Functions
+  1109→  // ============================================
+  1110→  
+  1111→  function formatNumber(num) {
+  1112→    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+  1113→    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+  1114→    return num.toString();
+  1115→  }
+  1116→
+  1117→  function formatTimeUntil(timestamp) {
+  1118→    if (!timestamp) return 'unknown time';
+  1119→    const diff = timestamp - Date.now();
+  1120→    if (diff <= 0) return 'now';
+  1121→    
+  1122→    const seconds = Math.floor(diff / 1000);
+  1123→    if (seconds < 60) return `${seconds}s`;
+  1124→    
+  1125→    const minutes = Math.floor(seconds / 60);
+  1126→    if (minutes < 60) return `${minutes}m`;
+  1127→    
+  1128→    const hours = Math.floor(minutes / 60);
+  1129→    return `${hours}h`;
+  1130→  }
+  1131→
+  1132→  /**
+  1133→   * Mask API key for display - show first 4 chars and last 4, rest as dots
+  1134→   */
+  1135→  function maskApiKey(key) {
+  1136→    if (!key || key.length <= 8) return '••••••••';
+  1137→    const first = key.substring(0, 4);
+  1138→    const last = key.substring(key.length - 4);
+  1139→    const dots = '•'.repeat(Math.min(key.length - 8, 12));
+  1140→    return `${first}${dots}${last}`;
+  1141→  }
+  1142→
+  1143→  /**
+  1144→   * Show temporary save confirmation toast on a specific element
+  1145→   */
+  1146→  function showSaveConfirmation(cardElement, providerName) {
+  1147→    // Remove any existing confirmation
+  1148→    cardElement.querySelector('.save-confirmation')?.remove();
+  1149→    
+  1150→    const confirm = document.createElement('div');
+  1151→    confirm.className = 'save-confirmation';
+  1152→    confirm.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Key saved!`;
+  1153→    
+  1154→    const header = cardElement.querySelector('.provider-header');
+  1155→    if (header) {
+  1156→      header.appendChild(confirm);
+  1157→      // Auto-remove after 2 seconds
+  1158→      setTimeout(() => confirm.remove(), 2000);
+  1159→    }
+  1160→  }
+  1161→
+  1162→  /**
+  1163→   * Start countdown timers for rate-limited providers
+  1164→   * Auto-updates badges and reverts to green when limit expires
+  1165→   */
+  1166→  let countdownInterval = null;
+  1167→  
+  1168→  function startCountdownTimers() {
+  1169→    // Clear any existing interval
+  1170→    if (countdownInterval) {
+  1171→      clearInterval(countdownInterval);
+  1172→    }
+  1173→    
+  1174→    // Update every second
+  1175→    countdownInterval = setInterval(() => {
+  1176→      if (!modalElement) {
+  1177→        clearInterval(countdownInterval);
+  1178→        countdownInterval = null;
+  1179→        return;
+  1180→      }
+  1181→      
+  1182→      let needsRefresh = false;
+  1183→      
+  1184→      // Update all countdown displays
+  1185→      modalElement.querySelectorAll('.status-countdown, .rate-limit-timer').forEach(el => {
+  1186→        const resetTime = parseInt(el.dataset.resetTime);
+  1187→        if (!resetTime) return;
+  1188→        
+  1189→        const diff = resetTime - Date.now();
+  1190→        
+  1191→        if (diff <= 0) {
+  1192→          // Rate limit has expired - mark for refresh
+  1193→          el.textContent = 'now';
+  1194→          needsRefresh = true;
+  1195→        } else {
+  1196→          // Update display
+  1197→          const seconds = Math.floor(diff / 1000);
+  1198→          if (seconds < 60) {
+  1199→            el.textContent = `${seconds}s`;
+  1200→          } else {
+  1201→            const minutes = Math.floor(seconds / 60);
+  1202→            el.textContent = minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h`;
+  1203→          }
+  1204→        }
+  1205→      });
+  1206→      
+  1207→      // Update progress bars
+  1208→      modalElement.querySelectorAll('.rate-limit-bar').forEach(bar => {
+  1209→        const timer = bar.closest('.rate-limit-expanded')?.querySelector('.rate-limit-timer');
+  1210→        const resetTime = timer ? parseInt(timer.dataset.resetTime) : 0;
+  1211→        if (!resetTime) return;
+  1212→        
+  1213→        const diff = resetTime - Date.now();
+  1214→        // Assume rate limit duration was ~60 seconds, calculate remaining percentage
+  1215→        const totalDuration = 60000; // Default 60 second window
+  1216→        const elapsed = Math.max(0, totalDuration - diff);
+  1217→        const percent = Math.min(100, Math.max(0, (elapsed / totalDuration) * 100));
+  1218→        
+  1219→        bar.style.width = `${100 - percent}%`;
+  1220→      });
+  1221→      
+  1222→      // Check if any rate limits have expired
+  1223→      Object.keys(rateLimitState).forEach(providerId => {
+  1224→        const state = rateLimitState[providerId];
+  1225→        if (state.isCurrentlyLimited && state.resetTime && Date.now() > state.resetTime) {
+  1226→          state.isCurrentlyLimited = false;
+  1227→          needsRefresh = true;
+  1228→          console.log(`✅ Rate limit expired for ${providerId}`);
+  1229→        }
+  1230→      });
+  1231→      
+  1232→      // Refresh modal if needed to show updated badges
+  1233→      if (needsRefresh) {
+  1234→        saveState();
+  1235→        // Dispatch event for external listeners
+  1236→        window.dispatchEvent(new CustomEvent('llm:rateLimitReset'));
+  1237→        
+  1238→        // Refresh the modal content
+  1239→        const isRateLimitedContext = Object.values(rateLimitState).some(s => s.isCurrentlyLimited);
+  1240→        if (modalElement && !isRateLimitedContext) {
+  1241→          // Only auto-refresh if no providers are still rate limited
+  1242→          // This prevents flickering when multiple providers are limited
+  1243→          const stillLimited = modalElement.querySelectorAll('.status-rate-limited').length > 0;
+  1244→          if (!stillLimited) {
+  1245→            closeSwitcherModal();
+  1246→            showSwitcherModal();
+  1247→            
+  1248→            if (window.IDEUtils) {
+  1249→              IDEUtils.showToast('Rate limit(s) expired - providers available again', 'success', 3000);
+  1250→            }
+  1251→          }
+  1252→        }
+  1253→      }
+  1254→    }, 1000);
+  1255→  }
+  1256→
+  1257→  // ============================================
+  1258→  // Public API
+  1259→  // ============================================
+  1260→  
+  1261→  return {
+  1262→    init,
+  1263→    
+  1264→    // Provider Management
+  1265→    getProviders,
+  1266→    getCurrentProvider,
+  1267→    setProvider,
+  1268→    getProviderStatus,
+  1269→    setApiKey,
+  1270→    getApiKey,
+  1271→    
+  1272→    // Rate Limit Detection
+  1273→    getRateLimitState: () => ({ ...rateLimitState }),
+  1274→    isRateLimited: (providerId) => rateLimitState[providerId]?.isCurrentlyLimited || false,
+  1275→    
+  1276→    // Context Window
+  1277→    getContextUsage,
+  1278→    updateContextUsage: updateContextUsageEstimate,
+  1279→    
+  1280→    // Modal
+  1281→    showSwitcherModal,
+  1282→    closeSwitcherModal,
+  1283→    
+  1284→    // Constants
+  1285→    PROVIDERS,
+  1286→    
+  1287→    // State
+  1288→    getState: () => ({
+  1289→      currentProvider,
+  1290→      contextUsage,
+  1291→      rateLimitState: { ...rateLimitState }
+  1292→    })
+  1293→  };
+  1294→})();
+  1295→
+  1296→// Export for use in other modules
+  1297→window.LLMManagerComponent = LLMManagerComponent;
+  1298→

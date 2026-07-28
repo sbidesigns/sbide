@@ -1,0 +1,667 @@
+     1→/**
+     2→ * SBIDE - Utility Functions
+     3→ * Common helpers for icons, formatting, debounce, language detection
+     4→ */
+     5→
+     6→const IDEUtils = (() => {
+     7→  // ============================================
+     8→  // SVG Icon Library
+     9→  // ============================================
+    10→  
+    11→  const Icons = {
+    12→    // Navigation & Layout
+    13→    menu: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>',
+    14→    sidebarLeft: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>',
+    15→    sidebarRight: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/></svg>',
+    16→    panelLeft: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>',
+    17→    panelRight: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/></svg>',
+    18→    chevronLeft: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>',
+    19→    chevronRight: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>',
+    20→    chevronDown: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>',
+    21→    maximize: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>',
+    22→    minimize: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v3a2 2 0 01-2 2H3m18 0h-3a2 2 0 01-2-2V3m0 18v-3a2 2 0 012-2h3M3 16h3a2 2 0 012 2v3"/></svg>',
+    23→    
+    24→    // Files & Folders
+    25→    folder: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>',
+    26→    folderOpen: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><path d="M2 10h20"/></svg>',
+    27→    file: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+    28→    fileCode: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M10 13l-3 3 3 3"/><path d="M14 13l3 3-3 3"/></svg>',
+    29→    fileJson: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><text x="7" y="18" font-size="8" fill="currentColor">{}</text></svg>',
+    30→    fileImage: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>',
+    31→    fileMarkdown: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 11l2 4 2-4m-4 0h4"/></svg>',
+    32→    newFile: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>',
+    33→    newFolder: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>',
+    34→    save: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>',
+    35→    download: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+    36→    upload: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>',
+    37→    trash: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>',
+    38→    copy: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>',
+    39→    refresh: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>',
+    40→    
+    41→    // Actions
+    42→    search: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+    43→    settings: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>',
+    44→    close: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+    45→    plus: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+    46→    minus: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+    47→    check: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>',
+    48→    x: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+    49→    edit: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+    50→    externalLink: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>',
+    51→    eye: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
+    52→    code: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
+    53→    terminal: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
+    54→    
+    55→    // Chat & AI
+    56→    send: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>',
+    57→    bot: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>',
+    58→    user: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+    59→    sparkles: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/><path d="M5 19l1 3 1-3 3-1-3-1-1-3-1 3-3 1 3 1z"/><path d="M19 13l1 2 1-2 2-1-2-1-1-2-1 2-2 1 2 1z"/></svg>',
+    60→    stop: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>',
+    61→    reload: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>',
+    62→    
+    63→    // Tabs
+    64→    filesTab: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>',
+    65→    searchTab: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+    66→    memoryTab: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a8 8 0 00-8 8c0 3.4 2.1 6.3 5 7.5V20h6v-2.5c2.9-1.2 5-4.1 5-7.5a8 8 0 00-8-8z"/><line x1="9" y1="22" x2="15" y2="22"/></svg>',
+    67→    versionsTab: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+    68→    contextTab: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>',
+    69→    
+    70→    // Project
+    71→    project: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><path d="M2 10h20"/></svg>',
+    72→    zip: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M10 12h4"/><path d="M12 10v4"/></svg>',
+    73→    
+    74→    // Misc
+    75→    info: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+    76→    warning: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+    77→    success: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+    78→    error: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+    79→    moreVertical: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>',
+    80→    grip: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/></svg>'
+    81→  };
+    82→
+    83→  /**
+    84→   * Get an icon SVG string by name
+    85→   */
+    86→  function getIcon(name) {
+    87→    return Icons[name] || Icons.file;
+    88→  }
+    89→
+    90→  // ============================================
+    91→  // Language Detection
+    92→  // ============================================
+    93→  
+    94→  const LanguageMap = {
+    95→    '.js': 'javascript',
+    96→    '.jsx': 'javascript',
+    97→    '.ts': 'typescript',
+    98→    '.tsx': 'typescript',
+    99→    '.py': 'python',
+   100→    '.rb': 'ruby',
+   101→    '.java': 'java',
+   102→    '.c': 'c',
+   103→    '.cpp': 'cpp',
+   104→    '.cs': 'csharp',
+   105→    '.go': 'go',
+   106→    '.rs': 'rust',
+   107→    '.php': 'php',
+   108→    '.swift': 'swift',
+   109→    '.kt': 'kotlin',
+   110→    '.scala': 'scala',
+   111→    '.html': 'html',
+   112→    '.htm': 'html',
+   113→    '.css': 'css',
+   114→    '.scss': 'scss',
+   115→    '.sass': 'scss',
+   116→    '.less': 'less',
+   117→    '.json': 'json',
+   118→    '.md': 'markdown',
+   119→    '.markdown': 'markdown',
+   120→    '.yaml': 'yaml',
+   121→    '.yml': 'yaml',
+   122→    '.xml': 'xml',
+   123→    '.sql': 'sql',
+   124→    '.sh': 'bash',
+   125→    '.bash': 'bash',
+   126→    '.zsh': 'bash',
+   127→    '.env': 'ini',
+   128→    '.gitignore': 'plaintext',
+   129→    '.dockerfile': 'dockerfile',
+   130→    '.txt': 'plaintext',
+   131→    '.log': 'plaintext',
+   132→    '.csv': 'plaintext',
+   133→    '.svg': 'xml',
+   134→    '.vue': 'markup',
+   135→    '.svelte': 'markup'
+   136→  };
+   137→
+   138→  /**
+   139→   * Detect programming language from filename/extension
+   140→   */
+   141→  function detectLanguage(filename) {
+   142→    if (!filename) return 'plaintext';
+   143→    const lowerName = filename.toLowerCase();
+   144→    
+   145→    // Check special filenames first
+   146→    if (lowerName === 'dockerfile') return 'dockerfile';
+   147→    if (lowerName === 'makefile') return 'makefile';
+   148→    if (lowerName === '.gitignore' || lowerName === '.env') return 'ini';
+   149→    if (lowerName === 'readme.md' || lowerName === 'changelog.md') return 'markdown';
+   150→    
+   151→    // Get extension
+   152→    const lastDotIndex = lowerName.lastIndexOf('.');
+   153→    if (lastDotIndex === -1) return 'plaintext';
+   154→    
+   155→    const ext = lowerName.substring(lastDotIndex);
+   156→    return LanguageMap[ext] || 'plaintext';
+   157→  }
+   158→
+   159→  /**
+   160→   * Get file icon based on extension/type
+   161→   */
+   162→  function getFileIcon(filename, type) {
+   163→    if (type === 'folder') return Icons.folder;
+   164→    
+   165→    if (!filename) return Icons.file;
+   166→    const ext = filename.substring(filename.lastIndexOf('.')).toLowerCase();
+   167→    
+   168→    switch (ext) {
+   169→      case '.js':
+   170→      case '.ts':
+   171→      case '.jsx':
+   172→      case '.tsx':
+   173→        return Icons.fileCode;
+   174→      case '.json':
+   175→        return Icons.fileJson;
+   176→      case '.png':
+   177→      case '.jpg':
+   178→      case '.jpeg':
+   179→      case '.gif':
+   180→      case '.svg':
+   181→      case '.webp':
+   182→        return Icons.fileImage;
+   183→      case '.md':
+   184→      case '.markdown':
+   185→        return Icons.fileMarkdown;
+   186→      default:
+   187→        return Icons.file;
+   188→    }
+   189→  }
+   190→
+   191→  // ============================================
+   192→  // Formatting Utilities
+   193→  // ============================================
+   194→  
+   195→  /**
+   196→   * Format bytes to human-readable size
+   197→   */
+   198→  function formatBytes(bytes, decimals = 2) {
+   199→    if (!bytes || bytes === 0) return '0 B';
+   200→    
+   201→    const k = 1024;
+   202→    const sizes = ['B', 'KB', 'MB', 'GB'];
+   203→    const i = Math.floor(Math.log(bytes) / Math.log(k));
+   204→    
+   205→    return parseFloat((bytes / Math.pow(k, i)).toFixed(decimals)) + ' ' + sizes[i];
+   206→  }
+   207→
+   208→  /**
+   209→   * Format timestamp to relative time
+   210→   */
+   211→  function formatRelativeTime(timestamp) {
+   212→    if (!timestamp) return '';
+   213→    
+   214→    const now = Date.now();
+   215→    const diff = now - timestamp;
+   216→    const seconds = Math.floor(diff / 1000);
+   217→    const minutes = Math.floor(seconds / 60);
+   218→    const hours = Math.floor(minutes / 60);
+   219→    const days = Math.floor(hours / 24);
+   220→    
+   221→    if (seconds < 60) return 'just now';
+   222→    if (minutes < 60) return `${minutes}m ago`;
+   223→    if (hours < 24) return `${hours}h ago`;
+   224→    if (days < 7) return `${days}d ago`;
+   225→    
+   226→    return new Date(timestamp).toLocaleDateString();
+   227→  }
+   228→
+   229→  /**
+   230→   * Format date to locale string
+   231→   */
+   232→  function formatDate(timestamp, options = {}) {
+   233→    if (!timestamp) return '';
+   234→    const defaults = { 
+   235→      month: 'short', 
+   236→      day: 'numeric',
+   237→      hour: '2-digit',
+   238→      minute: '2-digit'
+   239→    };
+   240→    return new Date(timestamp).toLocaleDateString(undefined, { ...defaults, ...options });
+   241→  }
+   242→
+   243→  /**
+   244→   * Truncate text with ellipsis
+   245→   */
+   246→  function truncate(text, maxLength = 50) {
+   247→    if (!text) return '';
+   248→    if (text.length <= maxLength) return text;
+   249→    return text.substring(0, maxLength - 3) + '...';
+   250→  }
+   251→
+   252→  /**
+   253→   * Escape HTML entities to prevent XSS
+   254→   */
+   255→  function escapeHtml(text) {
+   256→    if (!text) return '';
+   257→    const div = document.createElement('div');
+   258→    div.textContent = text;
+   259→    return div.innerHTML;
+   260→  }
+   261→
+   262→  /**
+   263→   * Generate a unique ID
+   264→   */
+   265→  function generateId() {
+   266→    return Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+   267→  }
+   268→
+   269→  // ============================================
+   270→  // Debounce & Throttle
+   271→  // ============================================
+   272→  
+   273→  /**
+   274→   * Debounce function execution
+   275→   */
+   276→  function debounce(fn, delay = 300) {
+   277→    let timeoutId;
+   278→    return function (...args) {
+   279→      clearTimeout(timeoutId);
+   280→      timeoutId = setTimeout(() => fn.apply(this, args), delay);
+   281→    };
+   282→  }
+   283→
+   284→  /**
+   285→   * Throttle function execution
+   286→   */
+   287→  function throttle(fn, limit = 100) {
+   288→    let inThrottle;
+   289→    return function (...args) {
+   290→      if (!inThrottle) {
+   291→        fn.apply(this, args);
+   292→        inThrottle = true;
+   293→        setTimeout(() => inThrottle = false, limit);
+   294→      }
+   295→    };
+   296→  }
+   297→
+   298→  // ============================================
+   299→  // DOM Utilities
+   300→  // ============================================
+   301→  
+   302→  /**
+   303→   * Query selector shorthand
+   304→   */
+   305→  function $(selector, context = document) {
+   306→    return context.querySelector(selector);
+   307→  }
+   308→
+   309→  /**
+   310→   * Query selector all shorthand
+   311→   */
+   312→  function $$(selector, context = document) {
+   313→    return Array.from(context.querySelectorAll(selector));
+   314→  }
+   315→
+   316→  /**
+   317→   * Create element with optional attributes and children
+   318→   */
+   319→  function createElement(tag, attrs = {}, children = []) {
+   320→    const el = document.createElement(tag);
+   321→    
+   322→    Object.entries(attrs).forEach(([key, value]) => {
+   323→      if (key === 'className') {
+   324→        el.className = value;
+   325→      } else if (key.startsWith('on') && typeof value === 'function') {
+   326→        el.addEventListener(key.slice(2).toLowerCase(), value);
+   327→      } else if (key === 'innerHTML') {
+   328→        el.innerHTML = value;
+   329→      } else if (key === 'textContent') {
+   330→        el.textContent = value;
+   331→      } else {
+   332→        el.setAttribute(key, value);
+   333→      }
+   334→    });
+   335→    
+   336→    children.forEach(child => {
+   337→      if (typeof child === 'string') {
+   338→        el.insertAdjacentHTML('beforeend', child);
+   339→      } else if (child instanceof Node) {
+   340→        el.appendChild(child);
+   341→      }
+   342→    });
+   343→    
+   344→    return el;
+   345→  }
+   346→
+   347→  /**
+   348→   * Show element(s)
+   349→   */
+   350→  function show(...elements) {
+   351→    elements.forEach(el => {
+   352→      if (el) el.classList.remove('hidden');
+   353→    });
+   354→  }
+   355→
+   356→  /**
+   357→   * Hide element(s)
+   358→   */
+   359→  function hide(...elements) {
+   360→    elements.forEach(el => {
+   361→      if (el) el.classList.add('hidden');
+   362→    });
+   363→  }
+   364→
+   365→  /**
+   366→   * Toggle element visibility
+   367→   */
+   368→  function toggle(element, force) {
+   369→    if (!element) return;
+   370→    if (typeof force === 'boolean') {
+   371→      element.classList.toggle('hidden', !force);
+   372→    } else {
+   373→      element.classList.toggle('hidden');
+   374→    }
+   375→  }
+   376→
+   377→  /**
+   378→   * Check if element is visible
+   379→   */
+   380→  function isVisible(element) {
+   381→    return element && !element.classList.contains('hidden');
+   382→  }
+   383→
+   384→  // ============================================
+   385→  // Sound Effects (ported from v1 IDE)
+   386→  // ============================================
+   387→  
+   388→  let audioCtx = null;
+   389→  
+   390→  /**
+   391→   * Lazily create a shared Web Audio context (must be created on user gesture).
+   392→   */
+   393→  function getAudioCtx() {
+   394→    if (audioCtx) return audioCtx;
+   395→    try {
+   396→      const Ctor = window.AudioContext || window.webkitAudioContext;
+   397→      if (!Ctor) return null;
+   398→      audioCtx = new Ctor();
+   399→    } catch (e) {
+   400→      console.warn('Web Audio API unavailable:', e);
+   401→      return null;
+   402→    }
+   403→    return audioCtx;
+   404→  }
+   405→  
+   406→  /**
+   407→   * Returns true if sound effects are currently enabled in settings.
+   408→   */
+   409→  function soundEffectsEnabled() {
+   410→    if (window.IDEState) {
+   411→      const s = IDEState.get('settings');
+   412→      if (s && typeof s.soundEffects === 'boolean') return s.soundEffects;
+   413→    }
+   414→    // Fallback: check localStorage directly
+   415→    try {
+   416→      const stored = JSON.parse(localStorage.getItem('ide-settings') || '{}');
+   417→      return !!stored.soundEffects;
+   418→    } catch {
+   419→      return false;
+   420→    }
+   421→  }
+   422→  
+   423→  /**
+   424→   * Play a short synthesized sound cue. No asset files needed.
+   425→   * @param {'save'|'error'|'success'|'info'|'click'} type
+   426→   */
+   427→  function playSound(type = 'info') {
+   428→    if (!soundEffectsEnabled()) return;
+   429→    const ctx = getAudioCtx();
+   430→    if (!ctx) return;
+   431→    
+   432→    // Some browsers suspend audio until a user gesture resumes it
+   433→    if (ctx.state === 'suspended') {
+   434→      ctx.resume().catch(() => {});
+   435→    }
+   436→    
+   437→    const now = ctx.currentTime;
+   438→    const osc = ctx.createOscillator();
+   439→    const gain = ctx.createGain();
+   440→    osc.connect(gain);
+   441→    gain.connect(ctx.destination);
+   442→    
+   443→    // Type-specific envelope and frequency
+   444→    let freq = 440;
+   445→    let endFreq = 660;
+   446→    let dur = 0.08;
+   447→    let peak = 0.06;
+   448→    switch (type) {
+   449→      case 'save':
+   450→      case 'success':
+   451→        freq = 523.25; endFreq = 783.99; dur = 0.12; peak = 0.07; // C5 -> G5
+   452→        osc.type = 'sine';
+   453→        break;
+   454→      case 'error':
+   455→        freq = 311.13; endFreq = 207.65; dur = 0.18; peak = 0.08; // Eb4 -> Ab3
+   456→        osc.type = 'square';
+   457→        break;
+   458→      case 'click':
+   459→        freq = 660; endFreq = 660; dur = 0.04; peak = 0.04;
+   460→        osc.type = 'triangle';
+   461→        break;
+   462→      case 'info':
+   463→      default:
+   464→        freq = 440; endFreq = 523.25; dur = 0.08; peak = 0.05; // A4 -> C5
+   465→        osc.type = 'sine';
+   466→        break;
+   467→    }
+   468→    
+   469→    osc.frequency.setValueAtTime(freq, now);
+   470→    osc.frequency.exponentialRampToValueAtTime(Math.max(20, endFreq), now + dur);
+   471→    gain.gain.setValueAtTime(0.0001, now);
+   472→    gain.gain.exponentialRampToValueAtTime(peak, now + 0.01);
+   473→    gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+   474→    
+   475→    osc.start(now);
+   476→    osc.stop(now + dur + 0.02);
+   477→  }
+   478→
+   479→  // ============================================
+   480→  // Toast Notifications
+   481→  // ============================================
+   482→  
+   483→  /**
+   484→   * Show toast notification
+   485→   */
+   486→  function showToast(message, type = 'info', duration = 4000) {
+   487→    const container = document.getElementById('toast-container');
+   488→    if (!container) return;
+   489→    
+   490→    // Play a matching sound cue if sound effects are enabled
+   491→    playSound(type);
+   492→    
+   493→    const toast = createElement('div', {
+   494→      className: `toast toast-${type}`,
+   495→      role: 'alert'
+   496→    }, [
+   497→      type === 'success' ? Icons.success : type === 'error' ? Icons.error : Icons.info,
+   498→      `<span>${escapeHtml(message)}</span>`,
+   499→      `<button class="icon-btn toast-close" aria-label="Dismiss">${Icons.x}</button>`
+   500→    ]);
+   501→    
+   502→    container.appendChild(toast);
+   503→    
+   504→    // Trigger animation
+   505→    requestAnimationFrame(() => toast.classList.add('show'));
+   506→    
+   507→    // Close button handler
+   508→    toast.querySelector('.toast-close').addEventListener('click', () => removeToast(toast));
+   509→    
+   510→    // Auto-remove after duration
+   511→    setTimeout(() => removeToast(toast), duration);
+   512→  }
+   513→
+   514→  function removeToast(toast) {
+   515→    toast.classList.remove('show');
+   516→    setTimeout(() => toast.remove(), 200);
+   517→  }
+   518→
+   519→  // ============================================
+   520→  // Clipboard Utilities
+   521→  // ============================================
+   522→  
+   523→  /**
+   524→   * Copy text to clipboard
+   525→   */
+   526→  async function copyToClipboard(text) {
+   527→    try {
+   528→      await navigator.clipboard.writeText(text);
+   529→      showToast('Copied to clipboard!', 'success');
+   530→      return true;
+   531→    } catch (error) {
+   532→      console.error('Failed to copy:', error);
+   533→      // Fallback for older browsers
+   534→      const textarea = document.createElement('textarea');
+   535→      textarea.value = text;
+   536→      textarea.style.position = 'fixed';
+   537→      textarea.style.opacity = '0';
+   538→      document.body.appendChild(textarea);
+   539→      textarea.select();
+   540→      document.execCommand('copy');
+   541→      document.body.removeChild(textarea);
+   542→      showToast('Copied!', 'success');
+   543→      return true;
+   544→    }
+   545→  }
+   546→
+   547→  // ============================================
+   548→  // File Download Utilities
+   549→  // ============================================
+   550→  
+   551→  /**
+   552→   * Download content as file
+   553→   */
+   554→  function downloadFile(content, filename, mimeType = 'text/plain') {
+   555→    const blob = new Blob([content], { type: mimeType });
+   556→    const url = URL.createObjectURL(blob);
+   557→    const link = document.createElement('a');
+   558→    link.href = url;
+   559→    link.download = filename;
+   560→    document.body.appendChild(link);
+   561→    link.click();
+   562→    document.body.removeChild(link);
+   563→    URL.revokeObjectURL(url);
+   564→  }
+   565→
+   566→  /**
+   567→   * Download object as JSON file
+   568→   */
+   569→  function downloadJSON(data, filename) {
+   570→    downloadFile(JSON.stringify(data, null, 2), filename, 'application/json');
+   571→  }
+   572→
+   573→  // ============================================
+   574→  // Validation Utilities
+   575→  // ============================================
+   576→  
+   577→  /**
+   578→   * Convert any string to a URL-safe kebab-case slug
+   579→   * "My Awesome Project!" -> "my-awesome-project"
+   580→   */
+   581→  function slugify(text) {
+   582→    if (!text) return '';
+   583→    
+   584→    return text
+   585→      .trim()
+   586→      .toLowerCase()
+   587→      // Replace spaces and special chars with hyphens
+   588→      .replace(/[\s_]+/g, '-')                    // spaces/underscores → hyphens
+   589→      .replace(/[^a-z0-9-]/g, '')                  // remove non-alphanumeric (except hyphen)
+   590→      .replace(/-+/g, '-')                          // collapse multiple hyphens
+   591→      .replace(/^-|-$/g, '')                        // trim leading/trailing hyphens
+   592→      .substring(0, 48);                            // max length
+   593→  }
+   594→
+   595→  /**
+   596→   * Validate project name format
+   597→   * Now accepts ANY name - auto-slugifies for internal use
+   598→   */
+   599→  function validateProjectName(name) {
+   600→    if (!name || name.trim().length === 0) {
+   601→      return { valid: false, error: 'Project name is required' };
+   602→    }
+   603→    if (name.trim().length < 1) {
+   604→      return { valid: false, error: 'Please enter a name' };
+   605→    }
+   606→    if (name.length > 60) {
+   607→      return { valid: false, error: 'Name must be under 60 characters' };
+   608→    }
+   609→    // Accept anything - we'll slugify it internally
+   610→    const slug = slugify(name);
+   611→    if (slug.length < 1) {
+   612→      return { valid: false, error: 'Name must contain at least one letter or number' };
+   613→    }
+   614→    return { valid: true, error: null, slug };
+   615→  }
+   616→
+   617→  /**
+   618→   * Validate filename
+   619→   */
+   620→  function validateFilename(name) {
+   621→    if (!name || name.trim().length === 0) {
+   622→      return { valid: false, error: 'Filename is required' };
+   623→    }
+   624→    if (/[<>:"/\\|?*]/.test(name)) {
+   625→      return { valid: false, error: 'Filename contains invalid characters' };
+   626→    }
+   627→    if (name === '.' || name === '..') {
+   628→      return { valid: false, error: 'Invalid filename' };
+   629→    }
+   630→    return { valid: true, error: null };
+   631→  }
+   632→
+   633→  // Public API
+   634→  return {
+   635→    Icons,
+   636→    getIcon,
+   637→    detectLanguage,
+   638→    getFileIcon,
+   639→    formatBytes,
+   640→    formatRelativeTime,
+   641→    formatDate,
+   642→    truncate,
+   643→    escapeHtml,
+   644→    generateId,
+   645→    debounce,
+   646→    throttle,
+   647→    $,
+   648→    $$,
+   649→    createElement,
+   650→    show,
+   651→    hide,
+   652→    toggle,
+   653→    isVisible,
+   654→    showToast,
+   655→    playSound,
+   656→    copyToClipboard,
+   657→    downloadFile,
+   658→    downloadJSON,
+   659→    slugify,
+   660→    validateProjectName,
+   661→    validateFilename
+   662→  };
+   663→})();
+   664→
+   665→// Export for use in other modules
+   666→window.IDEUtils = IDEUtils;
+   667→

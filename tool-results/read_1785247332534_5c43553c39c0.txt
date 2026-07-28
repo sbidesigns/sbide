@@ -1,0 +1,850 @@
+     1→/**
+     2→ * SBIDE - Message Bubble Component
+     3→ * Renders individual chat messages with markdown, code blocks, and action buttons
+     4→ * Ported from React MessageBubble.tsx with full feature parity
+     5→ */
+     6→
+     7→const MessageBubbleComponent = (() => {
+     8→  // ============================================
+     9→  // State
+    10→  // ============================================
+    11→  
+    12→  let container = null;
+    13→  let message = null;
+    14→  let isStreaming = false;
+    15→  
+    16→  // Callbacks
+    17→  let onRegenerate = null;
+    18→  let onRollback = null;
+    19→  let onEditAndRegenerate = null;
+    20→  
+    21→  // Dialog state
+    22→  let activeDialog = null;
+    23→
+    24→  // ============================================
+    25→  // Initialization
+    26→  // ============================================
+    27→  
+    28→  /**
+    29→   * Initialize message bubble component
+    30→   * @param {HTMLElement} element - Container element for the bubble
+    31→   * @param {Object} options - Configuration options
+    32→   */
+    33→  function init(element, options = {}) {
+    34→    if (!element) {
+    35→      console.error('MessageBubble: Container element required');
+    36→      return;
+    37→    }
+    38→    
+    39→    container = element;
+    40→    onRegenerate = options.onRegenerate || null;
+    41→    onRollback = options.onRollback || null;
+    42→    onEditAndRegenerate = options.onEditAndRegenerate || null;
+    43→  }
+    44→
+    45→  // ============================================
+    46→  // Rendering
+    47→  // ============================================
+    48→  
+    49→  /**
+    50→   * Render a message bubble
+    51→   * @param {Object} msg - Message object { id, role, content, timestamp, ... }
+    52→   * @param {Object} renderOptions - Additional options
+    53→   */
+    54→  function render(msg, renderOptions = {}) {
+    55→    if (!container) return;
+    56→    
+    57→    message = msg;
+    58→    isStreaming = renderOptions.isStreaming || false;
+    59→    onRegenerate = renderOptions.onRegenerate || onRegenerate;
+    60→    onRollback = renderOptions.onRollback || onRollback;
+    61→    onEditAndRegenerate = renderOptions.onEditAndRegenerate || onEditAndRegenerate;
+    62→    
+    63→    const isUser = msg.role === 'user';
+    64→    const isSystem = msg.role === 'system';
+    65→    
+    66→    // System message (centered)
+    67→    if (isSystem) {
+    68→      container.innerHTML = `
+    69→        <div class="message-bubble message-system">
+    70→          <span class="message-system-content">${escapeHtml(msg.content)}</span>
+    71→        </div>
+    72→      `;
+    73→      return;
+    74→    }
+    75→    
+    76→    // Regular message (user or assistant)
+    77→    const formattedTime = formatTime(msg.timestamp);
+    78→    const avatarHtml = renderAvatar(isUser);
+    79→    const contentHtml = renderContent(msg, isUser);
+    80→    const metaHtml = renderMetadata(msg, isUser, formattedTime);
+    81→    const actionsHtml = !isStreaming ? renderActions(msg, isUser) : '';
+    82→    const sourcesHtml = !isUser && msg.sources && msg.sources.length > 0 ? renderSources(msg.sources) : '';
+    83→    const streamingProgressHtml = isStreaming && !isUser && msg.content ? renderStreamingProgress(msg.content) : '';
+    84→    
+    85→    container.innerHTML = `
+    86→      <div class="message-bubble ${isUser ? 'message-user' : 'message-assistant'}" data-message-id="${msg.id}">
+    87→        <div class="message-avatar">${avatarHtml}</div>
+    88→        <div class="message-body">
+    89→          <div class="message-content ${isUser ? 'user-content' : 'assistant-content'}">
+    90→            ${contentHtml}
+    91→            ${isStreaming && isUser ? '<span class="streaming-cursor"></span>' : ''}
+    92→          </div>
+    93→          ${streamingProgressHtml}
+    94→          ${metaHtml}
+    95→          ${actionsHtml}
+    96→          ${sourcesHtml}
+    97→        </div>
+    98→      </div>
+    99→      
+   100→      <!-- Dialogs will be appended here when needed -->
+   101→      <div class="message-dialogs"></div>
+   102→    `;
+   103→    
+   104→    // Wire up event listeners
+   105→    wireUpActions(container, msg, isUser);
+   106→    
+   107→    // Apply syntax highlighting to code blocks
+   108→    applySyntaxHighlighting(container);
+   109→  }
+   110→  
+   111→  /**
+   112→   * Render avatar icon
+   113→   */
+   114→  function renderAvatar(isUser) {
+   115→    if (isUser) {
+   116→      return `
+   117→        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="avatar-icon">
+   118→          <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
+   119→          <circle cx="12" cy="7" r="4"/>
+   120→        </svg>
+   121→      `;
+   122→    }
+   123→    return `
+   124→      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="avatar-icon">
+   125→        <rect x="3" y="11" width="18" height="10" rx="2"/>
+   126→        <circle cx="12" cy="5" r="2"/>
+   127→        <path d="M8 15h.01M16 15h.01M12 17h.01"/>
+   128→      </svg>
+   129→    `;
+   130→  }
+   131→  
+   132→  /**
+   133→   * Render message content with markdown support
+   134→   */
+   135→  function renderContent(msg, isUser) {
+   136→    const content = msg.content || '';
+   137→    
+   138→    // Show typing indicator for empty streaming messages
+   139→    if (isStreaming && !content) {
+   140→      return `
+   141→        <div class="typing-indicator">
+   142→          <span class="typing-dot"></span>
+   143→          <span class="typing-dot"></span>
+   144→          <span class="typing-dot"></span>
+   145→        </div>
+   146→      `;
+   147→    }
+   148→    
+   149→    // Parse and render markdown
+   150→    return parseMarkdown(content, isUser);
+   151→  }
+   152→  
+   153→  /**
+   154→   * Parse markdown content to HTML
+   155→   */
+   156→  function parseMarkdown(content, isUser) {
+   157→    if (!content) return '';
+   158→    
+   159→    let html = escapeHtml(content);
+   160→    
+   161→    // Code blocks (```language\ncode\n```)
+   162→    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (match, language, code) => {
+   163→      return renderCodeBlock(code.trim(), language.trim(), isUser);
+   164→    });
+   165→    
+   166→    // Inline code (`code`)
+   167→    html = html.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
+   168→    
+   169→    // Bold (**text**)
+   170→    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+   171→    
+   172→    // Italic (*text*)
+   173→    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+   174→    
+   175→    // Headers
+   176→    html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+   177→    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+   178→    html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+   179→    
+   180→    // Links [text](url)
+   181→    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+   182→    
+   183→    // Line breaks
+   184→    html = html.replace(/\n/g, '<br>');
+   185→    
+   186→    // Paragraphs (double newline)
+   187→    html = html.replace(/<br><br>/g, '</p><p>');
+   188→    
+   189→    return `<div class="markdown-content">${html}</div>`;
+   190→  }
+   191→  
+   192→  /**
+   193→   * Render a code block with syntax highlighting and controls
+   194→   */
+   195→  function renderCodeBlock(code, language, isUser) {
+   196→    const lineCount = code.split('\n').length;
+   197→    const isLarge = lineCount > 30;
+   198→    const blockId = `code-block-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+   199→    
+   200→    return `
+   201→      <div class="code-block ${isLarge ? 'code-block-large' : ''}" data-block-id="${blockId}" data-language="${language}">
+   202→        <div class="code-block-header">
+   203→          <div class="code-block-info">
+   204→            <span class="code-language">${language || 'text'}</span>
+   205→            ${isLarge ? `<span class="code-line-count">${lineCount} lines</span>` : ''}
+   206→          </div>
+   207→          <button class="code-copy-btn icon-btn xs" title="Copy code" data-code="${escapeAttr(code)}">
+   208→            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   209→              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+   210→              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+   211→            </svg>
+   212→            <span>Copy</span>
+   213→          </button>
+   214→        </div>
+   215→        <div class="code-block-body ${isLarge ? 'collapsed' : ''}">
+   216→          <pre class="code-pre"><code class="language-${language}">${code}</code></pre>
+   217→          ${isLarge ? `
+   218→            <div class="code-expand-overlay">
+   219→              <button class="code-expand-btn btn btn-ghost btn-xs">
+   220→                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   221→                  <polyline points="6 9 12 15 18 9"/>
+   222→                </svg>
+   223→                Show ${lineCount - 15} more lines
+   224→              </button>
+   225→            </div>
+   226→          ` : ''}
+   227→        </div>
+   228→        ${isLarge ? `
+   229→          <div class="code-block-footer hidden">
+   230→            <button class="code-collapse-btn btn btn-ghost btn-xs">
+   231→              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   232→                <polyline points="18 15 12 9 6 15"/>
+   233→              </svg>
+   234→              Collapse
+   235→            </button>
+   236→          </div>
+   237→        ` : ''}
+   238→      </div>
+   239→    `;
+   240→  }
+   241→  
+   242→  /**
+   243→   * Render metadata (timestamp, badges)
+   244→   */
+   245→  function renderMetadata(msg, isUser, formattedTime) {
+   246→    const badges = [];
+   247→    
+   248→    // Files badge
+   249→    if ((msg.filesCreated?.length || msg.filesModified?.length)) {
+   250→      badges.push(`
+   251→        <span class="message-badge badge-files">
+   252→          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   253→            <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/>
+   254→            <polyline points="13 2 13 9 20 9"/>
+   255→          </svg>
+   256→          ${(msg.filesCreated?.length || 0) + (msg.filesModified?.length || 0)} files
+   257→        </span>
+   258→      `);
+   259→    }
+   260→    
+   261→    // Anchors badge
+   262→    if (msg.memoryAnchors && msg.memoryAnchors.length > 0) {
+   263→      badges.push(`
+   264→        <span class="message-badge badge-anchors">
+   265→          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   266→            <circle cx="12" cy="5" r="3"/>
+   267→            <line x1="12" y1="22" x2="12" y2="8"/>
+   268→            <path d="M5 12H2a10 10 0 0020 0h-3"/>
+   269→          </svg>
+   270→          ${msg.memoryAnchors.length} anchors
+   271→        </span>
+   272→      `);
+   273→    }
+   274→    
+   275→    // Confidence badge
+   276→    if (msg.confidence !== undefined) {
+   277→      const confidenceClass = msg.confidence > 0.8 ? 'confidence-high' : msg.confidence > 0.5 ? 'confidence-medium' : 'confidence-low';
+   278→      badges.push(`<span class="message-badge ${confidenceClass}">${Math.round(msg.confidence * 100)}% confident</span>`);
+   279→    }
+   280→    
+   281→    return `
+   282→      <div class="message-meta ${isUser ? 'meta-user' : 'meta-assistant'}">
+   283→        <span class="message-time" title="${new Date(msg.timestamp).toLocaleString()}">
+   284→          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   285→            <circle cx="12" cy="12" r="10"/>
+   286→            <polyline points="12 6 12 12 16 14"/>
+   287→          </svg>
+   288→          ${formattedTime}
+   289→        </span>
+   290→        ${badges.join('')}
+   291→      </div>
+   292→    `;
+   293→  }
+   294→  
+   295→  /**
+   296→   * Render action buttons
+   297→   */
+   298→  function renderActions(msg, isUser) {
+   299→    if (isUser) {
+   300→      return `
+   301→        <div class="message-actions actions-user">
+   302→          <button class="action-btn btn-action-copy" data-action="copy" title="Copy">
+   303→            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   304→              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+   305→              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+   306→            </svg>
+   307→            <span>Copy</span>
+   308→          </button>
+   309→          <button class="action-btn btn-action-edit" data-action="edit" title="Edit">
+   310→            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   311→              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+   312→              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+   313→            </svg>
+   314→            <span>Edit</span>
+   315→          </button>
+   316→          <button class="action-btn btn-action-delete destructive" data-action="delete" title="Delete">
+   317→            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   318→              <polyline points="3 6 5 6 21 6"/>
+   319→              <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+   320→            </svg>
+   321→            <span>Delete</span>
+   322→          </button>
+   323→        </div>
+   324→      `;
+   325→    }
+   326→    
+   327→    return `
+   328→      <div class="message-actions actions-assistant">
+   329→        <button class="action-btn btn-action-copy" data-action="copy" title="Copy">
+   330→          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   331→            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+   332→            <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+   333→          </svg>
+   334→          <span>Copy</span>
+   335→        </button>
+   336→        <button class="action-btn btn-action-rollback destructive" data-action="rollback" title="Rollback">
+   337→          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   338→            <polyline points="1 4 1 10 7 10"/>
+   339→            <polyline points="23 20 23 14 17 14"/>
+   340→            <path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/>
+   341→          </svg>
+   342→          <span>Rollback</span>
+   343→        </button>
+   344→        <button class="action-btn btn-action-delete destructive" data-action="delete" title="Delete">
+   345→          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   346→            <polyline points="3 6 5 6 21 6"/>
+   347→            <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+   348→          </svg>
+   349→          <span>Delete</span>
+   350→        </button>
+   351→        <button class="action-btn btn-action-regenerate" data-action="regenerate" title="Regenerate">
+   352→          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   353→            <polyline points="23 4 23 10 17 10"/>
+   354→            <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
+   355→          </svg>
+   356→          <span>Regenerate</span>
+   357→        </button>
+   358→      </div>
+   359→    `;
+   360→  }
+   361→  
+   362→  /**
+   363→   * Render sources list
+   364→   */
+   365→  function renderSources(sources) {
+   366→    return `
+   367→      <div class="message-sources">
+   368→        <p class="sources-label">Sources:</p>
+   369→        <div class="sources-list">
+   370→          ${sources.map(source => `
+   371→            <a href="${source.url}" target="_blank" rel="noopener noreferrer" class="source-link">
+   372→              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   373→                <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
+   374→                <polyline points="15 3 21 3 21 9"/>
+   375→                <line x1="10" y1="14" x2="21" y2="3"/>
+   376→              </svg>
+   377→              <span class="source-title">${escapeHtml(source.title)}</span>
+   378→            </a>
+   379→          `).join('')}
+   380→        </div>
+   381→      </div>
+   382→    `;
+   383→  }
+   384→  
+   385→  /**
+   386→   * Render streaming progress indicator
+   387→   */
+   388→  function renderStreamingProgress(content) {
+   389→    const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
+   390→    const charCount = content.length;
+   391→    const lineCount = content.split('\n').length;
+   392→    
+   393→    return `
+   394→      <div class="streaming-progress">
+   395→        <div class="streaming-status">
+   396→          <span class="streaming-dot"></span>
+   397→          <span>Streaming...</span>
+   398→        </div>
+   399→        <div class="streaming-stats">
+   400→          <span>${wordCount} words</span>
+   401→          <span>${charCount} chars</span>
+   402→          <span>${lineCount} lines</span>
+   403→        </div>
+   404→      </div>
+   405→    `;
+   406→  }
+   407→
+   408→  // ============================================
+   409→  // Event Handling
+   410→  // ============================================
+   411→  
+   412→  /**
+   413→   * Wire up action button events
+   414→   */
+   415→  function wireUpActions(bubbleEl, msg, isUser) {
+   416→    // Copy action
+   417→    bubbleEl.querySelector('.btn-action-copy')?.addEventListener('click', () => handleCopy(msg));
+   418→    
+   419→    // Edit action (user only)
+   420→    bubbleEl.querySelector('.btn-action-edit')?.addEventListener('click', () => handleEdit(msg));
+   421→    
+   422→    // Delete action
+   423→    bubbleEl.querySelector('.btn-action-delete')?.addEventListener('click', () => handleDelete(msg));
+   424→    
+   425→    // Rollback action (AI only)
+   426→    bubbleEl.querySelector('.btn-action-rollback')?.addEventListener('click', () => handleRollback(msg));
+   427→    
+   428→    // Regenerate action (AI only)
+   429→    bubbleEl.querySelector('.btn-action-regenerate')?.addEventListener('click', () => handleRegenerate(msg));
+   430→    
+   431→    // Code block copy buttons
+   432→    bubbleEl.querySelectorAll('.code-copy-btn').forEach(btn => {
+   433→      btn.addEventListener('click', () => handleCodeCopy(btn));
+   434→    });
+   435→    
+   436→    // Code block expand/collapse
+   437→    bubbleEl.querySelector('.code-expand-btn')?.addEventListener('click', (e) => {
+   438→      const block = e.target.closest('.code-block');
+   439→      expandCodeBlock(block);
+   440→    });
+   441→    
+   442→    bubbleEl.querySelector('.code-collapse-btn')?.addEventListener('click', (e) => {
+   443→      const block = e.target.closest('.code-block');
+   444→      collapseCodeBlock(block);
+   445→    });
+   446→  }
+   447→  
+   448→  /**
+   449→   * Handle copy message
+   450→   */
+   451→  async function handleCopy(msg) {
+   452→    try {
+   453→      await navigator.clipboard.writeText(msg.content || '');
+   454→      if (IDEUtils) IDEUtils.showToast('Copied to clipboard', 'success');
+   455→      
+   456→      // Update button state briefly
+   457→      const btn = container.querySelector('.btn-action-copy');
+   458→      if (btn) {
+   459→        btn.classList.add('copied');
+   460→        setTimeout(() => btn.classList.remove('copied'), 2000);
+   461→      }
+   462→    } catch (err) {
+   463→      console.error('Failed to copy:', err);
+   464→      if (IDEUtils) IDEUtils.showToast('Failed to copy', 'error');
+   465→    }
+   466→  }
+   467→  
+   468→  /**
+   469→   * Handle copy code block
+   470→   */
+   471→  async function handleCodeCopy(btn) {
+   472→    const code = btn.dataset.code;
+   473→    if (!code) return;
+   474→    
+   475→    try {
+   476→      await navigator.clipboard.writeText(code);
+   477→      btn.classList.add('copied');
+   478→      btn.innerHTML = `
+   479→        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   480→          <polyline points="20 6 9 17 4 12"/>
+   481→        </svg>
+   482→        <span>Copied!</span>
+   483→      `;
+   484→      setTimeout(() => {
+   485→        btn.classList.remove('copied');
+   486→        btn.innerHTML = `
+   487→          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   488→            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+   489→            <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+   490→          </svg>
+   491→          <span>Copy</span>
+   492→        `;
+   493→      }, 2000);
+   494→    } catch (err) {
+   495→      console.error('Failed to copy code:', err);
+   496→    }
+   497→  }
+   498→  
+   499→  /**
+   500→   * Expand large code block
+   501→   */
+   502→  function expandCodeBlock(block) {
+   503→    const body = block?.querySelector('.code-block-body');
+   504→    const overlay = block?.querySelector('.code-expand-overlay');
+   505→    const footer = block?.querySelector('.code-block-footer');
+   506→    
+   507→    if (body) body.classList.remove('collapsed');
+   508→    if (overlay) overlay.style.display = 'none';
+   509→    if (footer) footer.classList.remove('hidden');
+   510→  }
+   511→  
+   512→  /**
+   513→   * Collapse large code block
+   514→   */
+   515→  function collapseCodeBlock(block) {
+   516→    const body = block?.querySelector('.code-block-body');
+   517→    const footer = block?.querySelector('.code-block-footer');
+   518→    
+   519→    if (body) body.classList.add('collapsed');
+   520→    if (footer) footer.classList.add('hidden');
+   521→  }
+   522→  
+   523→  /**
+   524→   * Handle edit message (show edit dialog)
+   525→   */
+   526→  function handleEdit(msg) {
+   527→    showEditDialog(msg);
+   528→  }
+   529→  
+   530→  /**
+   531→   * Handle delete message
+   532→   */
+   533→  function handleDelete(msg) {
+   534→    showDeleteDialog(msg);
+   535→  }
+   536→  
+   537→  /**
+   538→   * Handle rollback
+   539→   */
+   540→  function handleRollback(msg) {
+   541→    showRollbackDialog(msg);
+   542→  }
+   543→  
+   544→  /**
+   545→   * Handle regenerate
+   546→   */
+   547→  function handleRegenerate(msg) {
+   548→    showRegenerateDialog(msg);
+   549→  }
+   550→
+   551→  // ============================================
+   552→  // Dialog Management
+   553→  // ============================================
+   554→  
+   555→  /**
+   556→   * Show edit & regenerate confirmation dialog
+   557→   */
+   558→  function showEditDialog(msg) {
+   559→    closeDialog();
+   560→    
+   561→    activeDialog = document.createElement('div');
+   562→    activeDialog.className = 'modal-overlay';
+   563→    activeDialog.setAttribute('role', 'alertdialog');
+   564→    activeDialog.setAttribute('aria-modal', 'true');
+   565→    
+   566→    activeDialog.innerHTML = `
+   567→      <div class="modal modal-sm">
+   568→        <div class="modal-header">
+   569→          <h2 class="modal-title">Edit & Regenerate</h2>
+   570→          <button class="icon-btn dialog-close-btn" aria-label="Close">
+   571→            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   572→              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+   573→            </svg>
+   574→          </button>
+   575→        </div>
+   576→        <div class="modal-body">
+   577→          <p class="dialog-description">
+   578→            Editing this message will remove all responses after it and regenerate a new response.
+   579→            A backup checkpoint will be created before making changes.
+   580→            Are you sure you want to continue?
+   581→          </p>
+   582→        </div>
+   583→        <div class="modal-footer">
+   584→          <button class="btn btn-outline cancel-dialog-btn">Cancel</button>
+   585→          <button class="btn btn-primary confirm-edit-btn">Edit & Regenerate</button>
+   586→        </div>
+   587→      </div>
+   588→    `;
+   589→    
+   590→    wireUpDialogEvents(activeDialog, {
+   591→      onCancel: () => closeDialog(),
+   592→      onConfirm: () => {
+   593→        if (onEditAndRegenerate) {
+   594→          // For now, just call the callback - edit UI would need more work
+   595→          onEditAndRegenerate(msg.id, msg.content);
+   596→        }
+   597→        closeDialog();
+   598→      }
+   599→    });
+   600→    
+   601→    document.body.appendChild(activeDialog);
+   602→  }
+   603→  
+   604→  /**
+   605→   * Show delete confirmation dialog
+   606→   */
+   607→  function showDeleteDialog(msg) {
+   608→    closeDialog();
+   609→    
+   610→    activeDialog = document.createElement('div');
+   611→    activeDialog.className = 'modal-overlay';
+   612→    activeDialog.setAttribute('role', 'alertdialog');
+   613→    activeDialog.setAttribute('aria-modal', 'true');
+   614→    
+   615→    activeDialog.innerHTML = `
+   616→      <div class="modal modal-sm">
+   617→        <div class="modal-header modal-header-danger">
+   618→          <h2 class="modal-title">Delete Message</h2>
+   619→          <button class="icon-btn dialog-close-btn" aria-label="Close">
+   620→            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   621→              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+   622→            </svg>
+   623→          </button>
+   624→        </div>
+   625→        <div class="modal-body">
+   626→          <p class="dialog-description">
+   627→            This will delete this message. This action may affect the conversation context.
+   628→            Are you sure you want to continue?
+   629→          </p>
+   630→        </div>
+   631→        <div class="modal-footer">
+   632→          <button class="btn btn-outline cancel-dialog-btn">Cancel</button>
+   633→          <button class="btn btn-danger confirm-delete-btn">Delete</button>
+   634→        </div>
+   635→      </div>
+   636→    `;
+   637→    
+   638→    wireUpDialogEvents(activeDialog, {
+   639→      onCancel: () => closeDialog(),
+   640→      onConfirm: () => {
+   641→        // Call store to delete message
+   642→        if (IDEState && typeof IDEState.deleteMessage === 'function') {
+   643→          IDEState.deleteMessage(msg.id);
+   644→        }
+   645→        if (IDEUtils) IDEUtils.showToast('Message deleted', 'success');
+   646→        closeDialog();
+   647→      }
+   648→    });
+   649→    
+   650→    document.body.appendChild(activeDialog);
+   651→  }
+   652→  
+   653→  /**
+   654→   * Show rollback confirmation dialog
+   655→   */
+   656→  function showRollbackDialog(msg) {
+   657→    closeDialog();
+   658→    
+   659→    activeDialog = document.createElement('div');
+   660→    activeDialog.className = 'modal-overlay';
+   661→    activeDialog.setAttribute('role', 'alertdialog');
+   662→    activeDialog.setAttribute('aria-modal', 'true');
+   663→    
+   664→    activeDialog.innerHTML = `
+   665→      <div class="modal modal-sm">
+   666→        <div class="modal-header modal-header-warning">
+   667→          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2">
+   668→            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+   669→            <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+   670→          </svg>
+   671→          <h2 class="modal-title">Rollback Conversation</h2>
+   672→          <button class="icon-btn dialog-close-btn" aria-label="Close">
+   673→            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   674→              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+   675→            </svg>
+   676→          </button>
+   677→        </div>
+   678→        <div class="modal-body">
+   679→          <p class="dialog-description">
+   680→            This will remove this message and all messages after it.
+   681→            This may affect project state and any changes made by the AI.
+   682→            A backup checkpoint will be created before rollback.
+   683→          </p>
+   684→        </div>
+   685→        <div class="modal-footer">
+   686→          <button class="btn btn-outline cancel-dialog-btn">Cancel</button>
+   687→          <button class="btn btn-danger confirm-rollback-btn">Rollback</button>
+   688→        </div>
+   689→      </div>
+   690→    `;
+   691→    
+   692→    wireUpDialogEvents(activeDialog, {
+   693→      onCancel: () => closeDialog(),
+   694→      onConfirm: () => {
+   695→        if (onRollback) {
+   696→          onRollback(msg.id);
+   697→        }
+   698→        closeDialog();
+   699→      }
+   700→    });
+   701→    
+   702→    document.body.appendChild(activeDialog);
+   703→  }
+   704→  
+   705→  /**
+   706→   * Show regenerate confirmation dialog
+   707→   */
+   708→  function showRegenerateDialog(msg) {
+   709→    closeDialog();
+   710→    
+   711→    activeDialog = document.createElement('div');
+   712→    activeDialog.className = 'modal-overlay';
+   713→    activeDialog.setAttribute('role', 'alertdialog');
+   714→    activeDialog.setAttribute('aria-modal', 'true');
+   715→    
+   716→    activeDialog.innerHTML = `
+   717→      <div class="modal modal-sm">
+   718→        <div class="modal-header">
+   719→          <h2 class="modal-title">Regenerate Response</h2>
+   720→          <button class="icon-btn dialog-close-btn" aria-label="Close">
+   721→            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   722→              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+   723→            </svg>
+   724→          </button>
+   725→        </div>
+   726→        <div class="modal-body">
+   727→          <p class="dialog-description">
+   728→            This will generate a new response. A backup checkpoint will be created
+   729→            with version suffix ".2" before regenerating.
+   730→          </p>
+   731→        </div>
+   732→        <div class="modal-footer">
+   733→          <button class="btn btn-outline cancel-dialog-btn">Cancel</button>
+   734→          <button class="btn btn-primary confirm-regenerate-btn">Regenerate</button>
+   735→        </div>
+   736→      </div>
+   737→    `;
+   738→    
+   739→    wireUpDialogEvents(activeDialog, {
+   740→      onCancel: () => closeDialog(),
+   741→      onConfirm: () => {
+   742→        if (onRegenerate) {
+   743→          onRegenerate(msg.id);
+   744→        }
+   745→        closeDialog();
+   746→      }
+   747→    });
+   748→    
+   749→    document.body.appendChild(activeDialog);
+   750→  }
+   751→  
+   752→  /**
+   753→   * Wire up common dialog events
+   754→   */
+   755→  function wireUpDialogEvents(dialogEl, { onCancel, onConfirm }) {
+   756→    dialogEl.querySelector('.cancel-dialog-btn, .dialog-close-btn')?.addEventListener('click', onCancel);
+   757→    dialogEl.querySelector('.confirm-edit-btn, .confirm-delete-btn, .confirm-rollback-btn, .confirm-regenerate-btn')?.addEventListener('click', onConfirm);
+   758→    
+   759→    dialogEl.addEventListener('click', (e) => {
+   760→      if (e.target === dialogEl) onCancel();
+   761→    });
+   762→    
+   763→    dialogEl.addEventListener('keydown', (e) => {
+   764→      if (e.key === 'Escape') onCancel();
+   765→    });
+   766→  }
+   767→  
+   768→  /**
+   769→   * Close any open dialog
+   770→   */
+   771→  function closeDialog() {
+   772→    if (activeDialog) {
+   773→      activeDialog.remove();
+   774→      activeDialog = null;
+   775→    }
+   776→  }
+   777→
+   778→  // ============================================
+   779→  // Syntax Highlighting
+   780→  // ============================================
+   781→  
+   782→  /**
+   783→   * Apply syntax highlighting to code blocks
+   784→   */
+   785→  function applySyntaxHighlighting(containerEl) {
+   786→    if (window.hljs) {
+   787→      containerEl.querySelectorAll('pre code').forEach(block => {
+   788→        hljs.highlightElement(block);
+   789→      });
+   790→    }
+   791→  }
+   792→
+   793→  // ============================================
+   794→  // Utility Functions
+   795→  // ============================================
+   796→  
+   797→  /**
+   798→   * Format timestamp to time string
+   799→   */
+   800→  function formatTime(timestamp) {
+   801→    if (!timestamp) return '';
+   802→    return new Date(timestamp).toLocaleTimeString([], {
+   803→      hour: '2-digit',
+   804→      minute: '2-digit'
+   805→    });
+   806→  }
+   807→  
+   808→  /**
+   809→   * Escape HTML entities
+   810→   */
+   811→  function escapeHtml(text) {
+   812→    if (!text) return '';
+   813→    const div = document.createElement('div');
+   814→    div.textContent = text;
+   815→    return div.innerHTML;
+   816→  }
+   817→  
+   818→  /**
+   819→   * Escape HTML attribute value
+   820→   */
+   821→  function escapeAttr(text) {
+   822→    if (!text) return '';
+   823→    return text
+   824→      .replace(/&/g, '&amp;')
+   825→      .replace(/"/g, '&quot;')
+   826→      .replace(/'/g, '&#39;')
+   827→      .replace(/</g, '&lt;')
+   828→      .replace(/>/g, '&gt;');
+   829→  }
+   830→
+   831→  // ============================================
+   832→  // Public API
+   833→  // ============================================
+   834→  
+   835→  return {
+   836→    init,
+   837→    render,
+   838→    closeDialog,
+   839→    
+   840→    // Expose for external use
+   841→    showEditDialog,
+   842→    showDeleteDialog,
+   843→    showRollbackDialog,
+   844→    showRegenerateDialog
+   845→  };
+   846→})();
+   847→
+   848→// Export for use in other modules
+   849→window.MessageBubbleComponent = MessageBubbleComponent;
+   850→

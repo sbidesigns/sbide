@@ -1,0 +1,1257 @@
+     1→/**
+     2→ * SBIDE - Chat Window Component
+     3→ * Handles chat UI, streaming responses, and tool call visualization
+     4→ */
+     5→
+     6→const ChatWindowComponent = (() => {
+     7→  // ============================================
+     8→  // State
+     9→  // ============================================
+    10→  
+    11→  let container = null;
+    12→  let messagesContainer = null;
+    13→  let inputContainer = null;
+    14→  let inputElement = null;
+    15→  let sendButton = null;
+    16→  
+    17→  // Streaming state
+    18→  let isStreaming = false;
+    19→  let currentStreamController = null;
+    20→  
+    21→  // Callbacks
+    22→  let onSendMessage = null;
+    23→  let onToolAction = null;
+    24→
+    25→  // ============================================
+    26→  // Initialization
+    27→  // ============================================
+    28→  
+    29→  /**
+    30→   * Initialize chat window component
+    31→   * @param {HTMLElement} element - Container element for chat
+    32→   * @param {Object} options - Configuration options
+    33→   */
+    34→  function init(element, options = {}) {
+    35→    if (!element) {
+    36→      console.error('ChatWindow: Container element required');
+    37→      return;
+    38→    }
+    39→    
+    40→    container = element;
+    41→    onSendMessage = options.onSendMessage || null;
+    42→    onToolAction = options.onToolAction || null;
+    43→    
+    44→    // Find sub-elements using CORRECT IDs from HTML
+    45→    // HTML has: #chat-messages, .chat-input-container, #chat-input, #send-message-btn
+    46→    messagesContainer = document.getElementById('chat-messages');
+    47→    inputContainer = container.querySelector('.chat-input-container');
+    48→    inputElement = document.getElementById('chat-input');  // textarea
+    49→    sendButton = document.getElementById('send-message-btn');  // button
+    50→    
+    51→    if (!messagesContainer) {
+    52→      console.warn('ChatWindow: #chat-messages not found');
+    53→    }
+    54→    if (!inputElement) {
+    55→      console.warn('ChatWindow: #chat-input not found');
+    56→    }
+    57→    if (!sendButton) {
+    58→      console.warn('ChatWindow: #send-message-btn not found');
+    59→    }
+    60→    
+    61→    // Setup event listeners
+    62→    setupEventListeners();
+    63→    
+    64→    // Subscribe to state changes
+    65→    if (window.IDEState) {
+    66→      IDEState.subscribe((state, prevState) => {
+    67→        // Handle new messages
+    68→        if (state.messages !== prevState.messages) {
+    69→          renderMessages(state.messages);
+    70→        }
+    71→        
+    72→        // Handle streaming state changes
+    73→        if (state.isStreaming !== prevState.isStreaming) {
+    74→          setStreaming(state.isStreaming);
+    75→        }
+    76→        
+    77→        // Handle project change - load project messages
+    78→        if (state.currentProject?.name !== prevState.currentProject?.name) {
+    79→          renderMessages(state.messages);
+    80→        }
+    81→      });
+    82→      
+    83→      // Initial render with existing messages
+    84→      renderMessages(IDEState.get('messages') || []);
+    85→    }
+    86→  }
+    87→
+    88→  /**
+    89→   * Create messages container if not in DOM
+    90→   */
+    91→  function createMessagesContainer() {
+    92→    const div = document.createElement('div');
+    93→    div.className = 'chat-messages';
+    94→    div.setAttribute('role', 'log');
+    95→    div.setAttribute('aria-label', 'Chat messages');
+    96→    div.setAttribute('aria-live', 'polite');
+    97→    container.prepend(div);
+    98→    return div;
+    99→  }
+   100→
+   101→  /**
+   102→   * Create input area if not in DOM
+   103→   */
+   104→  function createInputContainer() {
+   105→    const div = document.createElement('div');
+   106→    div.className = 'chat-input-area';
+   107→    div.innerHTML = `
+   108→      <div class="chat-actions-toolbar">
+   109→        <button class="btn btn-ghost btn-xs clear-chat-btn" id="clear-chat-btn" title="Clear conversation" disabled>
+   110→          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   111→            <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+   112→          </svg>
+   113→          Clear
+   114→        </button>
+   115→        <button class="btn btn-ghost btn-xs export-chat-btn" id="export-chat-btn" title="Export conversation" disabled>
+   116→          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   117→            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+   118→            <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+   119→          </svg>
+   120→          Export
+   121→        </button>
+   122→        <span class="context-indicator" id="context-indicator" style="display: none;">
+   123→          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   124→            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+   125→          </svg>
+   126→          <span class="context-count">0</span> web results in context
+   127→        </span>
+   128→      </div>
+   129→      <div class="input-wrapper">
+   130→        <textarea 
+   131→          class="chat-input" 
+   132→          placeholder="Send a message..."
+   133→          rows="1"
+   134→          aria-label="Chat message input"
+   135→        ></textarea>
+   136→        <button class="send-btn btn btn-primary" id="send-message-btn" aria-label="Send message">
+   137→          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   138→            <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+   139→          </svg>
+   140→        </button>
+   141→      </div>
+   142→      <p class="input-hint">Press Enter to send, Shift+Enter for new line</p>
+   143→    `;
+   144→    container.appendChild(div);
+   145→    
+   146→    inputElement = div.querySelector('.chat-input');
+   147→    sendButton = div.querySelector('#send-message-btn');
+   148→    
+   149→    // Wire up action buttons
+   150→    const clearBtn = div.querySelector('#clear-chat-btn');
+   151→    const exportBtn = div.querySelector('#export-chat-btn');
+   152→    
+   153→    if (clearBtn) {
+   154→      clearBtn.addEventListener('click', () => clearMessages());
+   155→    }
+   156→    
+   157→    if (exportBtn) {
+   158→      exportBtn.addEventListener('click', () => exportConversation());
+   159→    }
+   160→    
+   161→    return div;
+   162→  }
+   163→
+   164→  /**
+   165→   * Setup event listeners
+   166→   */
+   167→  function setupEventListeners() {
+   168→    // Send button click
+   169→    if (sendButton) {
+   170→      sendButton.addEventListener('click', () => sendMessage());
+   171→    }
+   172→    
+   173→    // Input keydown (Enter to send)
+   174→    if (inputElement) {
+   175→      inputElement.addEventListener('keydown', (e) => {
+   176→        if (e.key === 'Enter' && !e.shiftKey) {
+   177→          e.preventDefault();
+   178→          sendMessage();
+   179→        }
+   180→        
+   181→        // Auto-resize textarea
+   182→        autoResizeTextarea();
+   183→      });
+   184→      
+   185→      // Auto-resize + refresh send-button disabled state on every keystroke.
+   186→      // The send button's disabled state now tracks input content (not project
+   187→      // existence) so the user can always click it when there's text to send.
+   188→      inputElement.addEventListener('input', () => {
+   189→        autoResizeTextarea();
+   190→        updateInputState();
+   191→      });
+   192→    }
+   193→  }
+   194→
+   195→  /**
+   196→   * Auto-resize textarea based on content
+   197→   */
+   198→  function autoResizeTextarea() {
+   199→    if (!inputElement) return;
+   200→    
+   201→    inputElement.style.height = 'auto';
+   202→    inputElement.style.height = Math.min(inputElement.scrollHeight, 200) + 'px';
+   203→  }
+   204→
+   205→  // ============================================
+   206→  // Message Sending & Streaming
+   207→  // ============================================
+   208→  
+   209→  /**
+   210→   * Send a message
+   211→   */
+   212→  async function sendMessage() {
+   213→    if (!inputElement || isStreaming) return;
+   214→    
+   215→    let content = inputElement.value.trim();
+   216→    if (!content) return;
+   217→    
+   218→    // Input sanitization: remove null bytes and control characters (except newlines/tabs)
+   219→    content = content.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+   220→    
+   221→    // Validate message length (prevent abuse)
+   222→    const MAX_MESSAGE_LENGTH = 100000; // ~100K chars (~25K tokens)
+   223→    if (content.length > MAX_MESSAGE_LENGTH) {
+   224→      content = content.substring(0, MAX_MESSAGE_LENGTH);
+   225→      if (IDEUtils) IDEUtils.showToast('Message was truncated (too long)', 'warning');
+   226→    }
+   227→    
+   228→    // Minimum content check after sanitization
+   229→    if (!content.trim()) return;
+   230→    
+   231→    // Clear input
+   232→    inputElement.value = '';
+   233→    inputElement.style.height = 'auto';
+   234→    
+   235→    // Dispatch event for toolbar state management (e.g., auto-disable web search)
+   236→    window.dispatchEvent(new CustomEvent('chat:message-sent', { detail: { content } }));
+   237→    
+   238→    // Create user message
+   239→    const userMessage = {
+   240→      id: IDEUtils?.generateId() || Date.now().toString(),
+   241→      role: 'user',
+   242→      content,
+   243→      timestamp: Date.now()
+   244→    };
+   245→    
+   246→    // Add to state
+   247→    if (window.IDEState) {
+   248→      IDEState.addMessage(userMessage);
+   249→    }
+   250→    
+   251→    // Set streaming state (with double-check to prevent race conditions)
+   252→    if (isStreaming) {
+   253→      console.warn('sendMessage called while already streaming, ignoring');
+   254→      return;
+   255→    }
+   256→    setStreaming(true);
+   257→    
+   258→    // Create assistant message placeholder
+   259→    const assistantMessage = {
+   260→      id: IDEUtils?.generateId() || (Date.now() + 1).toString(),
+   261→      role: 'assistant',
+   262→      content: '',
+   263→      timestamp: Date.now(),
+   264→      isStreaming: true,
+   265→      toolCalls: [],
+   266→      backend: null   // populated by onBackend callback (cloud/ollama/webllm)
+   267→    };
+   268→    
+   269→    if (window.IDEState) {
+   270→      IDEState.addMessage(assistantMessage);
+   271→    }
+   272→    
+   273→    // Call send callback or use API directly
+   274→    try {
+   275→      if (onSendMessage) {
+   276→        await onSendMessage(content, {
+   277→          onChunk: (text) => handleStreamChunk(text),
+   278→          onToolCall: (tool, args) => handleToolCall(tool, args),
+   279→          onToolResult: (result, success) => handleToolResult(result, success),
+   280→          onError: (error) => handleStreamError(error),
+   281→          onBackend: (backend) => handleBackend(assistantMessage.id, backend),
+   282→          onDone: () => handleStreamDone(assistantMessage.id)
+   283→        });
+   284→      } else {
+   285→        // Default: use API client
+   286→        await streamWithAPI(content, assistantMessage.id);
+   287→      }
+   288→    } catch (error) {
+   289→      handleStreamError(error);
+   290→    }
+   291→  }
+   292→
+   293→  /**
+   294→   * Record which LLM backend served this message and re-render
+   295→   * so the header can show a "local" / "ollama" / "webllm" badge.
+   296→   */
+   297→  function handleBackend(messageId, backend) {
+   298→    if (!window.IDEState || !backend) return;
+   299→    const messages = IDEState.get('messages') || [];
+   300→    const idx = messages.findIndex(m => m.id === messageId);
+   301→    if (idx === -1) return;
+   302→    const updated = { ...messages[idx], backend };
+   303→    const next = messages.slice();
+   304→    next[idx] = updated;
+   305→    IDEState.set({ messages: next });
+   306→    // Patch the DOM header in-place to avoid full re-render flicker
+   307→    const el = document.querySelector(`.message-wrapper[data-message-id="${messageId}"] .message-role`);
+   308→    if (el) {
+   309→      const label = backend.type === 'ollama' ? 'AI Assistant · Ollama'
+   310→                  : backend.type === 'webllm' ? 'AI Assistant · WebLLM'
+   311→                  : backend.type === 'cloud'  ? 'AI Assistant'
+   312→                  : backend.type === 'demo'   ? 'AI Assistant · Demo'
+   313→                  : 'AI Assistant';
+   314→      el.textContent = label;
+   315→      el.dataset.backend = backend.type || '';
+   316→    }
+   317→  }
+   318→
+   319→  /**
+   320→   * Stream using API client
+   321→   */
+   322→  async function streamWithAPI(content, messageId) {
+   323→    const state = window.IDEState ? IDEState.getState() : {};
+   324→    
+   325→    currentStreamController = await IDEAPI.sendMessageStream({
+   326→      message: content,
+   327→      messages: state.messages?.filter(m => !m.isStreaming) || [],
+   328→      projectName: state.currentProject?.name || null,
+   329→      projectState: state.projectState || {},
+   330→      onChunk: (text) => handleStreamChunk(text),
+   331→      onToolCall: (tool, args) => handleToolCall(tool, args),
+   332→      onToolResult: (result, success) => handleToolResult(result, success),
+   333→      onError: (error) => handleStreamError(error),
+   334→      onBackend: (backend) => handleBackend(messageId, backend),
+   335→      onDone: () => handleStreamDone(messageId)
+   336→    });
+   337→  }
+   338→
+   339→  /**
+   340→   * Handle incoming stream chunk
+   341→   */
+   342→  function handleStreamChunk(text) {
+   343→    if (!text) return;
+   344→    
+   345→    if (window.IDEState) {
+   346→      const messages = IDEState.get('messages') || [];
+   347→      const lastMessage = messages[messages.length - 1];
+   348→      
+   349→      if (lastMessage && lastMessage.role === 'assistant') {
+   350→        IDEState.updateLastMessage(lastMessage.content + text);
+   351→      }
+   352→    }
+   353→  }
+   354→
+   355→  /**
+   356→   * Handle tool call from AI
+   357→   */
+   358→  function handleToolCall(tool, args) {
+   359→    // Add tool call to current message
+   360→    const messages = IDEState?.get('messages') || [];
+   361→    const lastMessage = messages[messages.length - 1];
+   362→    
+   363→    if (lastMessage && lastMessage.role === 'assistant') {
+   364→      const updatedToolCalls = [...(lastMessage.toolCalls || []), {
+   365→        id: IDEUtils?.generateId() || Date.now().toString(),
+   366→        tool,
+   367→        args,
+   368→        status: 'running',
+   369→        result: null
+   370→      }];
+   371→      
+   372→      // We need to update the message with tool calls info
+   373→      // This is handled by re-rendering which reads from state
+   374→      if (window.IDEState) {
+   375→        const updatedMessage = { ...lastMessage, toolCalls: updatedToolCalls };
+   376→        const msgIndex = messages.indexOf(lastMessage);
+   377→        const newMessages = [...messages];
+   378→        newMessages[msgIndex] = updatedMessage;
+   379→        IDEState.setMessages(newMessages);
+   380→      }
+   381→    }
+   382→    
+   383→    // Notify parent
+   384→    if (onToolAction) {
+   385→      onToolAction({ type: 'call', tool, args });
+   386→    }
+   387→  }
+   388→
+   389→  /**
+   390→   * Handle tool result
+   391→   */
+   392→  function handleToolResult(result, success) {
+   393→    // Update tool call status in message
+   394→    const messages = IDEState?.get('messages') || [];
+   395→    const lastMessage = messages[messages.length - 1];
+   396→    
+   397→    if (lastMessage && lastMessage.toolCalls) {
+   398→      const toolCalls = [...lastMessage.toolCalls];
+   399→      const lastCall = toolCalls[toolCalls.length - 1];
+   400→      if (lastCall && lastCall.status === 'running') {
+   401→        lastCall.status = success ? 'complete' : 'error';
+   402→        lastCall.result = result;
+   403→        
+   404→        if (window.IDEState) {
+   405→          const updatedMessage = { ...lastMessage, toolCalls };
+   406→          const msgIndex = messages.indexOf(lastMessage);
+   407→          const newMessages = [...messages];
+   408→          newMessages[msgIndex] = updatedMessage;
+   409→          IDEState.setMessages(newMessages);
+   410→        }
+   411→      }
+   412→    }
+   413→    
+   414→    // Notify parent
+   415→    if (onToolAction) {
+   416→      onToolAction({ type: 'result', result, success });
+   417→    }
+   418→  }
+   419→
+   420→  /**
+   421→   * Handle stream error
+   422→   */
+   423→  function handleStreamError(error) {
+   424→    console.error('Stream error:', error);
+   425→    
+   426→    // Add error message
+   427→    if (window.IDEState) {
+   428→      const errorMessage = {
+   429→        id: IDEUtils?.generateId() || Date.now().toString(),
+   430→        role: 'assistant',
+   431→        content: `**Error:** ${error.message || 'Something went wrong'}`,
+   432→        timestamp: Date.now(),
+   433→        isError: true
+   434→      };
+   435→      
+   436→      // Remove streaming placeholder and add error
+   437→      const messages = IDEState.get('messages').filter(m => !m.isStreaming);
+   438→      IDEState.setMessages([...messages, errorMessage]);
+   439→    }
+   440→    
+   441→    setStreaming(false);
+   442→  }
+   443→
+   444→  /**
+   445→   * Handle stream completion
+   446→   */
+   447→  function handleStreamDone(messageId) {
+   448→    // Finalize the streaming message
+   449→    if (window.IDEState) {
+   450→      const messages = IDEState.get('messages') || [];
+   451→      const message = messages.find(m => m.id === messageId);
+   452→      
+   453→      if (message) {
+   454→        const finalizedMessage = { 
+   455→          ...message, 
+   456→          isStreaming: false,
+   457→          timestamp: Date.now()
+   458→        };
+   459→        
+   460→        const msgIndex = messages.indexOf(message);
+   461→        const newMessages = [...messages];
+   462→        newMessages[msgIndex] = finalizedMessage;
+   463→        IDEState.setMessages(newMessages);
+   464→      }
+   465→    }
+   466→    
+   467→    setStreaming(false);
+   468→  }
+   469→
+   470→  /**
+   471→   * Stop current streaming
+   472→   */
+   473→  function stopStreaming() {
+   474→    if (currentStreamController) {
+   475→      IDEAPI.cancelStream(currentStreamController);
+   476→      currentStreamController = null;
+   477→    }
+   478→    setStreaming(false);
+   479→  }
+   480→
+   481→  /**
+   482→   * Set streaming state
+   483→   */
+   484→  function setStreaming(streaming) {
+   485→    isStreaming = streaming;
+   486→    
+   487→    if (window.IDEState) {
+   488→      IDEState.setStreaming(streaming);
+   489→    }
+   490→    
+   491→    // Update UI
+   492→    updateInputState();
+   493→    scrollToBottom();
+   494→  }
+   495→
+   496→  /**
+   497→   * Update input area based on state
+   498→   */
+   499→  function updateInputState() {
+   500→    if (!inputContainer) return;
+   501→    
+   502→    inputContainer.classList.toggle('streaming', isStreaming);
+   503→    
+   504→    // Update send button
+   505→    if (sendButton) {
+   506→      if (isStreaming) {
+   507→        sendButton.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M4.93 4.93l1.41 1.41"/><circle cx="18" cy="18" r="3"/></svg>`;
+   508→        sendButton.setAttribute('aria-label', 'Stop generating');
+   509→        sendButton.onclick = stopStreaming;
+   510→        sendButton.classList.add('btn-danger');
+   511→        sendButton.classList.remove('btn-primary');
+   512→      } else {
+   513→        sendButton.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`;
+   514→        sendButton.setAttribute('aria-label', 'Send message');
+   515→        sendButton.onclick = () => sendMessage();
+   516→        sendButton.classList.remove('btn-danger');
+   517→        sendButton.classList.add('btn-primary');
+   518→      }
+   519→    }
+   520→    
+   521→    // Show/hide stop streaming button (separate button in HTML)
+   522→    const stopBtn = document.getElementById('stop-streaming-btn');
+   523→    if (stopBtn) {
+   524→      stopBtn.classList.toggle('hidden', !isStreaming);
+   525→    }
+   526→    
+   527→    // Enable/disable action buttons when no project selected or no messages
+   528→    const hasProject = !!IDEState?.get('currentProject');
+   529→    const hasMessages = (IDEState?.get('messages')?.length || 0) > 0;
+   530→    
+   531→    if (sendButton) {
+   532→      // Send button is enabled whenever there's text in the input (or while
+   533→    // streaming, so the user can click to stop). Previously this required a
+   534→    // project to be selected, which made the button unclickable on a fresh
+   535→    // session — Enter still worked because the textarea keydown handler did
+   536→    // not check disabled state.
+   537→    const hasText = !!(inputElement && inputElement.value.trim());
+   538→    sendButton.disabled = !hasText && !isStreaming;
+   539→    }
+   540→    
+   541→    // Update Clear/Export buttons
+   542→    const clearBtn = document.getElementById('clear-chat-btn');
+   543→    const exportBtn = document.getElementById('export-chat-btn');
+   544→    
+   545→    if (clearBtn) clearBtn.disabled = !hasMessages || isStreaming;
+   546→    if (exportBtn) exportBtn.disabled = !hasMessages || isStreaming;
+   547→    
+   548→    // Update context indicator
+   549→    const contextResults = IDEState?.get('contextResults') || [];
+   550→    const contextIndicator = document.getElementById('context-indicator');
+   551→    if (contextIndicator) {
+   552→      if (contextResults.length > 0) {
+   553→        contextIndicator.style.display = 'flex';
+   554→        const countEl = contextIndicator.querySelector('.context-count');
+   555→        if (countEl) countEl.textContent = contextResults.length;
+   556→      } else {
+   557→        contextIndicator.style.display = 'none';
+   558→      }
+   559→    }
+   560→  }
+   561→
+   562→  // ============================================
+   563→  // Message Rendering
+   564→  // ============================================
+   565→  
+   566→  /**
+   567→   * Render all messages
+   568→   */
+   569→  function renderMessages(messages) {
+   570→    if (!messagesContainer) return;
+   571→    
+   572→    // Check if we should do full re-render or incremental
+   573→    const shouldFullRender = messagesContainer.children.length === 0 || 
+   574→                             messages.length <= messagesContainer.children.length;
+   575→    
+   576→    if (shouldFullRender) {
+   577→      fullRender(messages);
+   578→    } else {
+   579→      incrementalRender(messages);
+   580→    }
+   581→    
+   582→    scrollToBottom();
+   583→  }
+   584→
+   585→  /**
+   586→   * Full render of all messages
+   587→   */
+   588→  function fullRender(messages) {
+   589→    messagesContainer.innerHTML = '';
+   590→    
+   591→    if (!messages || messages.length === 0) {
+   592→      renderEmptyState();
+   593→      return;
+   594→    }
+   595→    
+   596→    messages.forEach((message, index) => {
+   597→      const el = renderMessage(message, index);
+   598→      messagesContainer.appendChild(el);
+   599→    });
+   600→  }
+   601→
+   602→  /**
+   603→   * Incremental render (add only new messages)
+   604→   */
+   605→  function incrementalRender(messages) {
+   606→    const existingCount = messagesContainer.children.length;
+   607→    
+   608→    for (let i = existingCount; i < messages.length; i++) {
+   609→      const el = renderMessage(messages[i], i);
+   610→      messagesContainer.appendChild(el);
+   611→    }
+   612→    
+   613→    // Update last message if it's streaming
+   614→    const lastMessage = messages[messages.length - 1];
+   615→    if (lastMessage && lastMessage.isStreaming) {
+   616→      const lastEl = messagesContainer.lastElementChild;
+   617→      if (lastEl) {
+   618→        updateStreamingContent(lastEl, lastMessage);
+   619→      }
+   620→    }
+   621→  }
+   622→
+   623→  /**
+   624→   * Render empty state (welcome screen)
+   625→   */
+   626→  function renderEmptyState() {
+   627→    const project = IDEState?.get('currentProject');
+   628→    
+   629→    const empty = document.createElement('div');
+   630→    empty.className = 'chat-empty-state';
+   631→    empty.innerHTML = `
+   632→      <div class="welcome-screen">
+   633→        <div class="welcome-icon">
+   634→          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   635→            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+   636→            <path d="M2 17l10 5 10-5"/>
+   637→            <path d="M2 12l10 5 10-5"/>
+   638→          </svg>
+   639→        </div>
+   640→        <h2 class="welcome-title">SBIDE</h2>
+   641→        <p class="welcome-description">
+   642→          ${project ? `Working on project: <strong>${escapeHtml(project.name)}</strong>` : 'Select or create a project to get started'}
+   643→        </p>
+   644→        <div class="quick-actions">
+   645→          <button class="btn btn-outline btn-sm quick-action-btn" data-action="analyze">
+   646→            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   647→              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+   648→            </svg>
+   649→            <span>Analyze project</span>
+   650→          </button>
+   651→          <button class="btn btn-outline btn-sm quick-action-btn" data-action="help">
+   652→            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   653→              <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+   654→            </svg>
+   655→            <span>Get help</span>
+   656→          </button>
+   657→          <button class="btn btn-outline btn-sm quick-action-btn" data-action="search">
+   658→            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   659→              <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
+   660→            </svg>
+   661→            <span>Web search</span>
+   662→          </button>
+   663→        </div>
+   664→      </div>
+   665→    `;
+   666→    
+   667→    // Wire up quick action buttons
+   668→    empty.querySelectorAll('.quick-action-btn').forEach(btn => {
+   669→      btn.addEventListener('click', () => {
+   670→        const action = btn.dataset.action;
+   671→        handleQuickAction(action);
+   672→      });
+   673→    });
+   674→    
+   675→    messagesContainer.appendChild(empty);
+   676→  }
+   677→
+   678→  /**
+   679→   * Render a single message
+   680→   */
+   681→  function renderMessage(message, index) {
+   682→    const wrapper = document.createElement('div');
+   683→    wrapper.className = `message-wrapper ${message.role}`;
+   684→    wrapper.dataset.messageId = message.id;
+   685→    
+   686→    // Avatar
+   687→    const avatar = document.createElement('div');
+   688→    avatar.className = `message-avatar ${message.role}`;
+   689→    avatar.innerHTML = message.role === 'user' 
+   690→      ? (IDEUtils?.Icons?.user || '')
+   691→      : (IDEUtils?.Icons?.bot || '');
+   692→    wrapper.appendChild(avatar);
+   693→    
+   694→    // Content container
+   695→    const content = document.createElement('div');
+   696→    content.className = `message-content ${message.isStreaming ? 'streaming' : ''}`;
+   697→    
+   698→    // Header with role label and actions
+   699→    const header = document.createElement('div');
+   700→    header.className = 'message-header';
+   701→    const roleLabel = message.role === 'user' ? 'You'
+   702→                    : message.backend?.type === 'ollama' ? 'AI Assistant · Ollama'
+   703→                    : message.backend?.type === 'webllm' ? 'AI Assistant · WebLLM'
+   704→                    : message.backend?.type === 'demo'   ? 'AI Assistant · Demo'
+   705→                    : 'AI Assistant';
+   706→    header.innerHTML = `
+   707→      <span class="message-role" data-backend="${message.backend?.type || ''}">${roleLabel}</span>
+   708→      <span class="message-time">${IDEUtils?.formatRelativeTime(message.timestamp) || ''}</span>
+   709→    `;
+   710→    content.appendChild(header);
+   711→    
+   712→    // Body (text content)
+   713→    const body = document.createElement('div');
+   714→    body.className = 'message-body';
+   715→    
+   716→    if (message.content) {
+   717→      body.innerHTML = formatMessageContent(message.content);
+   718→    } else if (message.isStreaming) {
+   719→      body.innerHTML = '<span class="streaming-cursor"></span>';
+   720→    }
+   721→    
+   722→    content.appendChild(body);
+   723→    
+   724→    // Tool calls display
+   725→    if (message.toolCalls && message.toolCalls.length > 0) {
+   726→      const toolsContainer = document.createElement('div');
+   727→      toolsContainer.className = 'tool-calls-container';
+   728→      
+   729→      message.toolCalls.forEach(tc => {
+   730→        toolsContainer.appendChild(renderToolCall(tc));
+   731→      });
+   732→      
+   733→      content.appendChild(toolsContainer);
+   734→    }
+   735→    
+   736→    // Actions bar (for non-streaming messages)
+   737→    if (!message.isStreaming) {
+   738→      const actions = document.createElement('div');
+   739→      actions.className = 'message-actions';
+   740→      actions.innerHTML = `
+   741→        <button class="action-btn" data-action="copy" title="Copy content">
+   742→          ${IDEUtils?.Icons?.copy || ''}
+   743→        </button>
+   744→        ${message.role === 'user' ? `
+   745→          <button class="action-btn" data-action="edit" title="Edit message">
+   746→            ${IDEUtils?.Icons?.edit || ''}
+   747→          </button>
+   748→        ` : `
+   749→          <button class="action-btn" data-action="regenerate" title="Regenerate response">
+   750→            ${IDEUtils?.Icons?.reload || ''}
+   751→          </button>
+   752→        `}
+   753→        <button class="action-btn" data-action="delete" title="Delete message">
+   754→          ${IDEUtils?.Icons?.trash || ''}
+   755→        </button>
+   756→      `;
+   757→      
+   758→      // Wire up action buttons
+   759→      actions.querySelectorAll('.action-btn').forEach(btn => {
+   760→        btn.addEventListener('click', () => handleMessageAction(btn.dataset.action, message));
+   761→      });
+   762→      
+   763→      content.appendChild(actions);
+   764→      
+   765→      // Suggested actions for assistant messages (not streaming, not errors)
+   766→      if (message.role === 'assistant' && !message.isError) {
+   767→        const suggestedActions = generateSuggestedActions(message);
+   768→        if (suggestedActions.length > 0) {
+   769→          const suggestionsContainer = renderSuggestedActions(suggestedActions, message);
+   770→          content.appendChild(suggestionsContainer);
+   771→        }
+   772→      }
+   773→    }
+   774→    
+   775→    wrapper.appendChild(content);
+   776→    
+   777→    return wrapper;
+   778→  }
+   779→
+   780→  /**
+   781→   * Format message content (markdown support)
+   782→   */
+   783→  function formatMessageContent(content) {
+   784→    if (!content) return '';
+   785→    
+   786→    // Basic markdown-like formatting
+   787→    let formatted = IDEUtils?.escapeHtml(content) || content;
+   788→    
+   789→    // Code blocks
+   790→    formatted = formatted.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
+   791→      return `<pre class="code-block"><code class="language-${lang || 'plaintext'}">${code.trim()}</code></pre>`;
+   792→    });
+   793→    
+   794→    // Inline code
+   795→    formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>');
+   796→    
+   797→    // Bold
+   798→    formatted = formatted.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+   799→    
+   800→    // Italic
+   801→    formatted = formatted.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+   802→    
+   803→    // Line breaks
+   804→    formatted = formatted.replace(/\n/g, '<br>');
+   805→    
+   806→    return formatted;
+   807→  }
+   808→
+   809→  /**
+   810→   * Render a single tool call
+   811→   */
+   812→  function renderToolCall(toolCall) {
+   813→    const el = document.createElement('div');
+   814→    el.className = `tool-call ${toolCall.status || 'running'}`;
+   815→    el.dataset.toolCallId = toolCall.id;
+   816→    
+   817→    const toolLabels = {
+   818→      read_file: 'Reading file',
+   819→      write_file: 'Writing file',
+   820→      create_file: 'Creating file',
+   821→      delete_file: 'Deleting file',
+   822→      list_files: 'Listing files',
+   823→      search_files: 'Searching files',
+   824→      execute_command: 'Running command',
+   825→      web_search: 'Web search',
+   826→      think: 'Thinking'
+   827→    };
+   828→    
+   829→    el.innerHTML = `
+   830→      <div class="tool-call-header">
+   831→        <span class="tool-icon">${IDEUtils?.Icons?.terminal || ''}</span>
+   832→        <span class="tool-name">${toolLabels[toolCall.tool] || toolCall.tool}</span>
+   833→        <span class="tool-status ${toolCall.status}">
+   834→          ${toolCall.status === 'running' ? '⏳ Running...' : 
+   835→            toolCall.status === 'complete' ? '✓ Complete' : 
+   836→            toolCall.status === 'error' ? '✗ Error' : ''}
+   837→        </span>
+   838→      </div>
+   839→      ${toolCall.args ? `
+   840→        <div class="tool-args">
+   841→          <pre>${IDEUtils?.escapeHtml(JSON.stringify(toolCall.args, null, 2)) || ''}</pre>
+   842→        </div>
+   843→      ` : ''}
+   844→      ${toolCall.result ? `
+   845→        <div class="tool-result">
+   846→          <summary>${toolCall.success !== false ? 'Result' : 'Error'}</summary>
+   847→          <pre>${IDEUtils?.escapeHtml(typeof toolCall.result === 'string' ? toolCall.result : JSON.stringify(toolCall.result, null, 2)) || ''}</pre>
+   848→        </div>
+   849→      ` : ''}
+   850→    `;
+   851→    
+   852→    return el;
+   853→  }
+   854→
+   855→  /**
+   856→   * Update streaming message content incrementally
+   857→   */
+   858→  function updateStreamingContent(element, message) {
+   859→    const body = element.querySelector('.message-body');
+   860→    if (body && message.content) {
+   861→      body.innerHTML = formatMessageContent(message.content) + '<span class="streaming-cursor"></span>';
+   862→    }
+   863→  }
+   864→
+   865→  // ============================================
+   866→  // Message Actions
+   867→  // ============================================
+   868→  
+   869→  /**
+   870→   * Handle message action button clicks
+   871→   */
+   872→  function handleMessageAction(action, message) {
+   873→    switch (action) {
+   874→      case 'copy':
+   875→        copyMessageContent(message);
+   876→        break;
+   877→      case 'edit':
+   878→        startEditMessage(message);
+   879→        break;
+   880→      case 'regenerate':
+   881→        regenerateResponse(message);
+   882→        break;
+   883→      case 'delete':
+   884→        deleteMessage(message);
+   885→        break;
+   886→    }
+   887→  }
+   888→
+   889→  /**
+   890→   * Copy message content to clipboard
+   891→   */
+   892→  async function copyMessageContent(message) {
+   893→    if (message.content && IDEUtils) {
+   894→      await IDEUtils.copyToClipboard(message.content);
+   895→    }
+   896→  }
+   897→
+   898→  /**
+   899→   * Start editing a user message
+   900→   */
+   901→  function startEditMessage(message) {
+   902→    if (message.role !== 'user' || !inputElement) return;
+   903→    
+   904→    inputElement.value = message.content;
+   905→    inputElement.focus();
+   906→    
+   907→    // Mark for truncation on next send
+   908→    inputElement.dataset.editMessageId = message.id;
+   909→  }
+   910→
+   911→  /**
+   912→   * Regenerate an assistant response
+   913→   */
+   914→  function regenerateResponse(message) {
+   915→    if (message.role !== 'assistant') return;
+   916→    
+   917→    // Find the user message before this one
+   918→    const messages = IDEState?.get('messages') || [];
+   919→    const index = messages.findIndex(m => m.id === message.id);
+   920→    
+   921→    if (index > 0) {
+   922→      const userMessage = messages[index - 1];
+   923→      if (userMessage.role === 'user') {
+   924→        // Remove this and any subsequent messages
+   925→        const truncated = messages.slice(0, index);
+   926→        IDEState.setMessages(truncated);
+   927→        
+   928→        // Re-send the user message
+   929→        if (inputElement) {
+   930→          inputElement.value = userMessage.content;
+   931→          sendMessage();
+   932→        }
+   933→      }
+   934→    }
+   935→  }
+   936→
+   937→  /**
+   938→   * Delete a message
+   939→   */
+   940→  function deleteMessage(message) {
+   941→    if (window.IDEState) {
+   942→      IDEState.deleteMessage(message.id);
+   943→    }
+   944→  }
+   945→
+   946→  // ============================================
+   947→  // Suggested Actions
+   948→  // ============================================
+   949→
+   950→  /**
+   951→   * Generate contextual suggested actions based on message content
+   952→   * @param {Object} message - The assistant message object
+   953→   * @returns {Array} Array of suggestion objects { id, label, icon, action, prompt }
+   954→   */
+   955→  function generateSuggestedActions(message) {
+   956→    const content = (message.content || '').toLowerCase();
+   957→    const hasCode = /```|function |const |let |var |class |import |export|<div|<span|{/.test(content);
+   958→    const hasFiles = message.toolCalls && message.toolCalls.some(tc => 
+   959→      ['read_file', 'write_file', 'create_file', 'delete_file', 'list_files'].includes(tc.tool)
+   960→    );
+   961→    const hasWebSearch = message.toolCalls && message.toolCalls.some(tc => 
+   962→      tc.tool === 'web_search'
+   963→    );
+   964→    const hasCommand = message.toolCalls && message.toolCalls.some(tc => 
+   965→      tc.tool === 'execute_command'
+   966→    );
+   967→
+   968→    const suggestions = [];
+   969→
+   970→    // Base suggestions for all responses
+   971→    if (hasCode) {
+   972→      suggestions.push({
+   973→        id: 'explain-code',
+   974→        label: 'Explain code',
+   975→        icon: 'code',
+   976→        action: 'prompt',
+   977→        prompt: 'Can you explain this code in more detail?'
+   978→      });
+   979→      suggestions.push({
+   980→        id: 'refactor',
+   981→        label: 'Refactor',
+   982→        icon: 'refresh',
+   983→        action: 'prompt',
+   984→        prompt: 'Can you suggest improvements or refactor this code?'
+   985→      });
+   986→    }
+   987→
+   988→    if (hasFiles) {
+   989→      suggestions.push({
+   990→        id: 'show-files',
+   991→        label: 'Show related files',
+   992→        icon: 'folder',
+   993→        action: 'prompt',
+   994→        prompt: 'What other files should I look at for this feature?'
+   995→      });
+   996→    }
+   997→
+   998→    // Check if response was about errors or issues
+   999→    if (/error|bug|fix|issue|problem|fail/.test(content)) {
+  1000→      suggestions.push({
+  1001→        id: 'debug-more',
+  1002→        label: 'Debug further',
+  1003→        icon: 'search',
+  1004→        action: 'prompt',
+  1005→        prompt: 'Help me debug this issue step by step'
+  1006→      });
+  1007→    }
+  1008→
+  1009→    // Check if response contained explanations
+  1010→    if (/how to|how do i|steps|tutorial|guide|implement/.test(content)) {
+  1011→      suggestions.push({
+  1012→        id: 'examples',
+  1013→        label: 'Show examples',
+  1014→        icon: 'lightbulb',
+  1015→        action: 'prompt',
+  1016→        prompt: 'Can you show me practical examples of this?'
+  1017→      });
+  1018→    }
+  1019→
+  1020→    // Always add these core suggestions (limit to 4 total)
+  1021→    if (suggestions.length < 4) {
+  1022→      suggestions.push({
+  1023→        id: 'elaborate',
+  1024→        label: 'Tell me more',
+  1025→        icon: 'message-circle',
+  1026→        action: 'prompt',
+  1027→        prompt: 'Can you elaborate on that?'
+  1028→      });
+  1029→    }
+  1030→
+  1031→    if (suggestions.length < 4) {
+  1032→      suggestions.push({
+  1033→        id: 'next-steps',
+  1034→        label: 'Next steps',
+  1035→        icon: 'arrow-right',
+  1036→        action: 'prompt',
+  1037→        prompt: 'What should I do next?'
+  1038→      });
+  1039→    }
+  1040→
+  1041→    if (suggestions.length < 4 && !hasWebSearch) {
+  1042→      suggestions.push({
+  1043→        id: 'search',
+  1044→        label: 'Search web',
+  1045→        icon: 'globe',
+  1046→        action: 'prompt',
+  1047→        prompt: 'Search the web for more information about this topic'
+  1048→      });
+  1049→    }
+  1050→
+  1051→    // Return max 4 suggestions
+  1052→    return suggestions.slice(0, 4);
+  1053→  }
+  1054→
+  1055→  /**
+  1056→   * Render suggested actions container
+  1057→   * @param {Array} suggestions - Array of suggestion objects
+  1058→   * @param {Object} message - The parent message object
+  1059→   * @returns {HTMLElement} The suggestions container element
+  1060→   */
+  1061→  function renderSuggestedActions(suggestions, message) {
+  1062→    const container = document.createElement('div');
+  1063→    container.className = 'suggested-actions';
+  1064→    
+  1065→    const icons = {
+  1066→      'code': '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
+  1067→      'refresh': '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>',
+  1068→      'folder': '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>',
+  1069→      'search': '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+  1070→      'lightbulb': '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0018 8 6 6 0 00-9-5.39a6.02 6.02 0 00-4.62 5.2c-.41 2.07.94 3.83 1.91 4.99.76.93 1.62 1.74 1.82 2.7"/></svg>',
+  1071→      'message-circle': '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>',
+  1072→      'arrow-right': '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>',
+  1073→      'globe': '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>'
+  1074→    };
+  1075→
+  1076→    container.innerHTML = `
+  1077→      <div class="suggested-actions-label">Suggested follow-ups</div>
+  1078→      <div class="suggested-actions-list">
+  1079→        ${suggestions.map(s => `
+  1080→          <button 
+  1081→            class="suggestion-chip" 
+  1082→            data-suggestion-id="${s.id}"
+  1083→            data-prompt="${s.prompt.replace(/"/g, '&quot;')}"
+  1084→            title="${s.prompt}"
+  1085→          >
+  1086→            <span class="suggestion-icon">${icons[s.icon] || icons['message-circle']}</span>
+  1087→            <span class="suggestion-label">${s.label}</span>
+  1088→          </button>
+  1089→        `).join('')}
+  1090→      </div>
+  1091→    `;
+  1092→
+  1093→    // Wire up click handlers
+  1094→    container.querySelectorAll('.suggestion-chip').forEach(chip => {
+  1095→      chip.addEventListener('click', () => {
+  1096→        const prompt = chip.dataset.prompt;
+  1097→        if (prompt && inputElement) {
+  1098→          inputElement.value = prompt;
+  1099→          inputElement.focus();
+  1100→          // Auto-send after a brief delay for UX
+  1101→          setTimeout(() => sendMessage(), 100);
+  1102→        }
+  1103→      });
+  1104→    });
+  1105→
+  1106→    return container;
+  1107→  }
+  1108→
+  1109→  // ============================================
+  1110→  // Utility Functions
+  1111→  // ============================================
+  1112→  
+  1113→  /**
+  1114→   * Escape HTML entities
+  1115→   */
+  1116→  function escapeHtml(text) {
+  1117→    if (!text) return '';
+  1118→    const div = document.createElement('div');
+  1119→    div.textContent = text;
+  1120→    return div.innerHTML;
+  1121→  }
+  1122→
+  1123→  /**
+  1124→   * Scroll to bottom of messages
+  1125→   */
+  1126→  function scrollToBottom() {
+  1127→    if (messagesContainer) {
+  1128→      requestAnimationFrame(() => {
+  1129→        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+  1130→      });
+  1131→    }
+  1132→  }
+  1133→
+  1134→  /**
+  1135→   * Clear all messages with confirmation
+  1136→   */
+  1137→  function clearMessages() {
+  1138→    const messages = IDEState?.get('messages') || [];
+  1139→    if (messages.length === 0) return;
+  1140→    
+  1141→    if (confirm('Are you sure you want to clear the conversation? This will not affect your project files.')) {
+  1142→      if (window.IDEState) {
+  1143→        IDEState.clearMessages();
+  1144→      }
+  1145→      if (messagesContainer) {
+  1146→        messagesContainer.innerHTML = '';
+  1147→        renderEmptyState();
+  1148→      }
+  1149→      if (IDEUtils) IDEUtils.showToast('Conversation cleared', 'success');
+  1150→    }
+  1151→  }
+  1152→  
+  1153→  /**
+  1154→   * Export conversation to file
+  1155→   */
+  1156→  function exportConversation() {
+  1157→    const messages = IDEState?.get('messages') || [];
+  1158→    if (messages.length === 0) {
+  1159→      if (IDEUtils) IDEUtils.showToast('No messages to export', 'warning');
+  1160→      return;
+  1161→    }
+  1162→    
+  1163→    const conversation = messages
+  1164→      .map(m => `[${new Date(m.timestamp).toISOString()}] ${m.role.toUpperCase()}: ${m.content}`)
+  1165→      .join('\n\n');
+  1166→    
+  1167→    const blob = new Blob([conversation], { type: 'text/plain' });
+  1168→    const url = URL.createObjectURL(blob);
+  1169→    const a = document.createElement('a');
+  1170→    a.href = url;
+  1171→    a.download = `conversation-${Date.now()}.txt`;
+  1172→    a.click();
+  1173→    URL.revokeObjectURL(url);
+  1174→    
+  1175→    if (IDEUtils) IDEUtils.showToast('Conversation exported', 'success');
+  1176→  }
+  1177→  
+  1178→  /**
+  1179→   * Handle quick action button clicks
+  1180→   */
+  1181→  function handleQuickAction(action) {
+  1182→    const suggestions = {
+  1183→      analyze: 'Help me understand the project structure',
+  1184→      help: 'What can you help me with?',
+  1185→      search: 'Search for the latest web development trends'
+  1186→    };
+  1187→    
+  1188→    if (inputElement && suggestions[action]) {
+  1189→      inputElement.value = suggestions[action];
+  1190→      inputElement.focus();
+  1191→      // Refresh send-button disabled state — the input now has text.
+  1192→      updateInputState();
+  1193→    }
+  1194→  }
+  1195→  
+  1196→  /**
+  1197→   * Rollback - remove message and all after it
+  1198→   */
+  1199→  function rollbackMessage(messageId) {
+  1200→    const messages = IDEState?.get('messages') || [];
+  1201→    const index = messages.findIndex(m => m.id === messageId);
+  1202→    if (index === -1) return;
+  1203→    
+  1204→    // Create backup before rollback
+  1205→    const project = IDEState?.get('currentProject');
+  1206→    if (project) {
+  1207→      fetch('/api/ide/versions', {
+  1208→        method: 'POST',
+  1209→        headers: { 'Content-Type': 'application/json' },
+  1210→        body: JSON.stringify({ 
+  1211→          project: project.name,
+  1212→          createArchive: true,
+  1213→          suffix: '.2',
+  1214→          description: 'Pre-rollback backup'
+  1215→        })
+  1216→      }).catch(e => console.error('Pre-rollback backup failed:', e));
+  1217→    }
+  1218→    
+  1219→    // Keep only messages before this one
+  1220→    const truncated = messages.slice(0, index);
+  1221→    IDEState.setMessages(truncated);
+  1222→    
+  1223→    if (IDEUtils) IDEUtils.showToast('Rolled back conversation', 'success');
+  1224→  }
+  1225→
+  1226→  /**
+  1227→   * Focus input field
+  1228→   */
+  1229→  function focusInput() {
+  1230→    if (inputElement) {
+  1231→      inputElement.focus();
+  1232→    }
+  1233→  }
+  1234→
+  1235→  // ============================================
+  1236→  // Public API
+  1237→  // ============================================
+  1238→  
+  1239→  return {
+  1240→    init,
+  1241→    sendMessage,
+  1242→    stopStreaming,
+  1243→    clearMessages,
+  1244→    exportConversation,
+  1245→    focusInput,
+  1246→    rollbackMessage,
+  1247→    
+  1248→    getState: () => ({
+  1249→      isStreaming,
+  1250→      hasMessages: (IDEState?.get('messages')?.length || 0) > 0
+  1251→    })
+  1252→  };
+  1253→})();
+  1254→
+  1255→// Export for use in other modules
+  1256→window.ChatWindowComponent = ChatWindowComponent;
+  1257→

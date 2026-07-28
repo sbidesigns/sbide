@@ -1,0 +1,2002 @@
+     1→/**
+     2→ * SBIDE - Sidebar Component
+     3→ * Manages sidebar state, tabs, panels, project CRUD, and all sidebar interactions
+     4→ */
+     5→
+     6→const SidebarComponent = (() => {
+     7→  // ============================================
+     8→  // State
+     9→  // ============================================
+    10→  
+    11→  let container = null;
+    12→  let sidebarElement = null;
+    13→  let toggleButton = null;
+    14→  
+    15→  // Panel containers
+    16→  let filesPanel = null;
+    17→  let searchPanel = null;
+    18→  let memoryPanel = null;
+    19→  let versionsPanel = null;
+    20→  let contextPanel = null;
+    21→  
+    22→  // Current state
+    23→  let isOpen = false;
+    24→  let isCollapsed = false; // Collapsed to rail (icons only)
+    25→  let activeTab = 'files';
+    26→  
+    27→  // Sub-component references
+    28→  let fileTree = null;
+    29→
+    30→  // ============================================
+    31→  // Initialization
+    32→  // ============================================
+    33→  
+    34→  /**
+    35→   * Initialize sidebar component
+    36→   * @param {HTMLElement} element - Main sidebar container
+    37→   * @param {Object} options - Configuration options
+    38→   */
+    39→  function init(element, options = {}) {
+    40→    if (!element) {
+    41→      console.error('Sidebar: Container element required');
+    42→      return;
+    43→    }
+    44→    
+    45→    container = element;
+    46→    sidebarElement = element; // The <aside id="sidebar"> element itself
+    47→    
+    48→    // Find panel containers using CORRECT IDs from HTML
+    49→    filesPanel = document.getElementById('panel-files');
+    50→    searchPanel = document.getElementById('panel-search');
+    51→    memoryPanel = document.getElementById('panel-memory');
+    52→    versionsPanel = document.getElementById('panel-versions');
+    53→    // Note: context is inside search panel in this HTML structure
+    54→    
+    55→    // Find toggle buttons
+    56→    // collapse-sidebar-btn is inside expanded sidebar
+    57→    // expand-sidebar-btn is inside collapsed sidebar
+    58→    
+    59→    // Initialize file tree - using #file-tree from HTML
+    60→    const treeContainer = document.getElementById('file-tree');
+    61→    if (treeContainer) {
+    62→      fileTree = window.FileTreeComponent || null;
+    63→      if (fileTree) {
+    64→        fileTree.init(treeContainer, {
+    65→          onFileSelect: handleFileSelect,
+    66→          onFileAction: handleFileAction
+    67→        });
+    68→      }
+    69→    }
+    70→    
+    71→    // Setup event listeners
+    72→    setupEventListeners();
+    73→    
+    74→    // Wire up the file-tree panel header buttons (New File / New Folder /
+    75→    // sort toggles). Refresh button is wired in app.js.
+    76→    setupFileTreeHeaderButtons();
+    77→    
+    78→    // Setup sidebar resize handle for adjustable width
+    79→    setupSidebarResizeHandle();
+    80→    
+    81→    // Listen for sort-state changes from FileTreeComponent (so the toggle
+    82→    // buttons stay in sync even when setSort is called programmatically).
+    83→    document.addEventListener('ide:file-sort-changed', () => {
+    84→      updateSortButtonStates();
+    85→    });
+    86→    
+    87→    // Keep #files-project-name in sync with the current project
+    88→    // (Restored from v1: shows the active project name in the file-tree header)
+    89→    function updateFilesProjectName(state) {
+    90→      const el = document.getElementById('files-project-name');
+    91→      if (!el) return;
+    92→      const project = state?.currentProject;
+    93→      if (project && project.name) {
+    94→        el.textContent = project.name;
+    95→        el.title = project.name;
+    96→      } else {
+    97→        el.textContent = 'No project';
+    98→        el.title = '';
+    99→      }
+   100→    }
+   101→    if (window.IDEState) {
+   102→      updateFilesProjectName(IDEState.getState());
+   103→      IDEState.subscribe((state) => updateFilesProjectName(state));
+   104→    }
+   105→
+   106→    // Subscribe to state changes
+   107→    if (window.IDEState) {
+   108→      IDEState.subscribe((state, prevState) => {
+   109→        // Sidebar open/close
+   110→        if (state.sidebarOpen !== prevState.sidebarOpen) {
+   111→          toggleSidebar(state.sidebarOpen);
+   112→        }
+   113→        
+   114→        // Active tab changes
+   115→        if (state.activeTab !== prevState.activeTab) {
+   116→          switchTab(state.activeTab);
+   117→        }
+   118→        
+   119→        // Project changes
+   120→        if (state.currentProject?.name !== prevState.currentProject?.name) {
+   121→          loadProjectData(state.currentProject);
+   122→        }
+   123→        
+   124→        // Settings panel
+   125→        if (state.settingsOpen !== prevState.settingsOpen) {
+   126→          toggleSettings(state.settingsOpen);
+   127→        }
+   128→      });
+   129→      
+   130→      // Initialize from saved state
+   131→      const savedState = IDEState.getState();
+   132→      isOpen = savedState.sidebarOpen || false;
+   133→      activeTab = savedState.activeTab || 'files';
+   134→      
+   135→      if (isOpen) {
+   136→        showSidebar();
+   137→      }
+   138→      
+   139→      switchTab(activeTab, false);
+   140→    }
+   141→    
+   142→    // Setup tab click handlers
+   143→    setupTabHandlers();
+   144→    
+   145→    // Setup modal handlers
+   146→    setupModalHandlers();
+   147→    
+   148→    // Setup search handlers
+   149→    setupSearchHandlers();
+   150→    
+   151→    console.log('Sidebar initialized');
+   152→  }
+   153→
+   154→  /**
+   155→   * Setup main event listeners
+   156→   */
+   157→  function setupEventListeners() {
+   158→    // Mobile menu button (id="mobile-menu-btn")
+   159→    const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+   160→    if (mobileMenuBtn) {
+   161→      mobileMenuBtn.addEventListener('click', () => {
+   162→        toggleSidebar(!isOpen);
+   163→      });
+   164→    }
+   165→    
+   166→    // Collapse sidebar button (id="collapse-sidebar-btn") - inside expanded sidebar
+   167→    const collapseBtn = document.getElementById('collapse-sidebar-btn');
+   168→    if (collapseBtn) {
+   169→      collapseBtn.addEventListener('click', () => {
+   170→        // When collapsing, show the collapsed (icon-only) view
+   171→        setCollapsed(true);
+   172→      });
+   173→    }
+   174→    
+   175→    // Expand sidebar button (id="expand-sidebar-btn") - inside collapsed sidebar
+   176→    const expandBtn = document.getElementById('expand-sidebar-btn');
+   177→    if (expandBtn) {
+   178→      expandBtn.addEventListener('click', () => {
+   179→        // When expanding, show the full sidebar
+   180→        setCollapsed(false);
+   181→        // Also make sure it's open
+   182→        if (!isOpen) {
+   183→          toggleSidebar(true);
+   184→        }
+   185→      });
+   186→    }
+   187→    
+   188→    // Close sidebar when clicking mobile overlay
+   189→    const mobileOverlay = document.getElementById('mobile-overlay');
+   190→    if (mobileOverlay) {
+   191→      mobileOverlay.addEventListener('click', () => {
+   192→        toggleSidebar(false);
+   193→      });
+   194→    }
+   195→    
+   196→    // Window resize handling
+   197→    window.addEventListener('resize', IDEUtils?.debounce(() => {
+   198→      // Auto-adjust for screen size
+   199→      if (window.innerWidth <= 768 && isOpen) {
+   200→        // On mobile, we might want to auto-close
+   201→      }
+   202→    }, 200));
+   203→  }
+   204→
+   205→  /**
+   206→   * Setup tab click handlers - HTML uses .tab-btn and .sidebar-nav-btn classes
+   207→   */
+   208→  function setupTabHandlers() {
+   209→    // Tab buttons in expanded sidebar (.tab-btn)
+   210→    const tabs = container.querySelectorAll('.tab-btn');
+   211→    
+   212→    tabs.forEach(tab => {
+   213→      tab.addEventListener('click', () => {
+   214→        const tabName = tab.dataset.tab;
+   215→        if (tabName) {
+   216→          switchTab(tabName);
+   217→        }
+   218→      });
+   219→    });
+   220→    
+   221→    // Nav buttons in collapsed sidebar (.sidebar-nav-btn)
+   222→    const navBtns = container.querySelectorAll('.sidebar-nav-btn');
+   223→    
+   224→    navBtns.forEach(btn => {
+   225→      btn.addEventListener('click', () => {
+   226→        const tabName = btn.dataset.tab;
+   227→        if (tabName) {
+   228→          // First expand if collapsed
+   229→          if (isCollapsed) {
+   230→            setCollapsed(false);
+   231→            if (!isOpen) toggleSidebar(true);
+   232→          }
+   233→          switchTab(tabName);
+   234→        }
+   235→      });
+   236→    });
+   237→  }
+   238→
+   239→  /**
+   240→   * Setup modal handlers (new project, import)
+   241→   */
+   242→  function setupModalHandlers() {
+   243→    // New project modal
+   244→    const newProjectBtn = document.getElementById('new-project-btn');
+   245→    const newProjectModal = document.getElementById('new-project-modal');
+   246→    const cancelNewBtn = document.getElementById('cancel-new-project-btn');
+   247→    const confirmNewBtn = document.getElementById('confirm-new-project-btn');
+   248→    const projectNameInput = document.getElementById('new-project-name');
+   249→    
+   250→    if (newProjectBtn && newProjectModal) {
+   251→      newProjectBtn.addEventListener('click', () => showModal(newProjectModal));
+   252→    }
+   253→    
+   254→    if (cancelNewBtn && newProjectModal) {
+   255→      cancelNewBtn.addEventListener('click', () => hideModal(newProjectModal));
+   256→    }
+   257→    
+   258→    if (projectNameInput && confirmNewBtn) {
+   259→      projectNameInput.addEventListener('input', () => {
+   260→        const validation = IDEUtils?.validateProjectName(projectNameInput.value);
+   261→        confirmNewBtn.disabled = !validation.valid;
+   262→        
+   263→        // Show slug preview or error
+   264→        const hint = document.getElementById('project-name-hint');
+   265→        if (hint) {
+   266→          if (!projectNameInput.value.trim()) {
+   267→            hint.textContent = 'Any name works — we\'ll make it URL-safe';
+   268→            hint.className = 'form-hint';
+   269→          } else if (!validation.valid) {
+   270→            hint.textContent = validation.error || 'Please enter a valid name';
+   271→            hint.className = 'form-hint error';
+   272→          } else {
+   273→            const slug = IDEUtils?.slugify(projectNameInput.value) || '';
+   274→            hint.textContent = `Will be created as: ${slug}`;
+   275→            hint.className = 'form-hint success';
+   276→          }
+   277→        }
+   278→      });
+   279→      
+   280→      confirmNewBtn.addEventListener('click', () => createProject(projectNameInput.value));
+   281→      
+   282→      // Enter key to submit
+   283→      projectNameInput.addEventListener('keydown', (e) => {
+   284→        if (e.key === 'Enter' && !confirmNewBtn.disabled) {
+   285→          createProject(projectNameInput.value);
+   286→        }
+   287→      });
+   288→    }
+   289→    
+   290→    // Import project modal
+   291→    const importBtn = document.getElementById('import-project-btn');
+   292→    const importModal = document.getElementById('import-modal');
+   293→    const cancelImportBtn = document.getElementById('cancel-import-btn');
+   294→    const confirmImportBtn = document.getElementById('confirm-import-btn');
+   295→    const importFileInput = document.getElementById('import-file-input');
+   296→    const importNameInput = document.getElementById('import-name-input');
+   297→    
+   298→    if (importBtn && importModal) {
+   299→      importBtn.addEventListener('click', () => showModal(importModal));
+   300→    }
+   301→    
+   302→    if (cancelImportBtn && importModal) {
+   303→      cancelImportBtn.addEventListener('click', () => hideModal(importModal));
+   304→    }
+   305→    
+   306→    if (importFileInput && confirmImportBtn) {
+   307→      importFileInput.addEventListener('change', () => {
+   308→        confirmImportBtn.disabled = !importFileInput.files.length;
+   309→        
+   310→        // Auto-fill name from filename
+   311→        if (importFileInput.files.length && importNameInput) {
+   312→          const fileName = importFileInput.files[0].name.replace(/\.zip$/i, '');
+   313→          importNameInput.value = fileName.toLowerCase().replace(/[^a-z0-9-]/g, '-').substring(0, 50);
+   314→        }
+   315→      });
+   316→      
+   317→      confirmImportBtn.addEventListener('click', () => importProject(importFileInput, importNameInput?.value));
+   318→    }
+   319→    
+   320→    // Close buttons in modals
+   321→    document.querySelectorAll('.modal-overlay .icon-btn[aria-label="Close dialog"]').forEach(btn => {
+   322→      btn.addEventListener('click', () => {
+   323→        const modal = btn.closest('.modal-overlay');
+   324→        if (modal) hideModal(modal);
+   325→      });
+   326→    });
+   327→    
+   328→    // Click overlay to close
+   329→    document.querySelectorAll('.modal-overlay').forEach(modal => {
+   330→      modal.addEventListener('click', (e) => {
+   331→        if (e.target === modal) hideModal(modal);
+   332→      });
+   333→    });
+   334→  }
+   335→
+   336→  /**
+   337→   * Setup search handlers
+   338→   */
+   339→  function setupSearchHandlers() {
+   340→    const searchInput = document.getElementById('search-input');
+   341→    const searchBtn = document.getElementById('search-btn');
+   342→    const clearSearchBtn = document.getElementById('clear-search-btn');
+   343→    
+   344→    if (searchInput) {
+   345→      const debouncedSearch = IDEUtils?.debounce(performSearch, 300) || performSearch;
+   346→      
+   347→      searchInput.addEventListener('input', debouncedSearch);
+   348→      searchInput.addEventListener('keydown', (e) => {
+   349→        if (e.key === 'Enter') performSearch();
+   350→        if (e.key === 'Escape') clearSearch();
+   351→      });
+   352→    }
+   353→    
+   354→    if (searchBtn) {
+   355→      searchBtn.addEventListener('click', performSearch);
+   356→    }
+   357→    
+   358→    if (clearSearchBtn) {
+   359→      clearSearchBtn.addEventListener('click', clearSearch);
+   360→    }
+   361→  }
+   362→
+   363→  // ============================================
+   364→  // Sidebar State Management
+   365→  // ============================================
+   366→  
+   367→  /**
+   368→   * Toggle sidebar visibility
+   369→   * HTML structure: #sidebar contains #sidebar-collapsed and #sidebar-expanded
+   370→   */
+   371→  function toggleSidebar(forceOpen) {
+   372→    isOpen = typeof forceOpen === 'boolean' ? forceOpen : !isOpen;
+   373→    
+   374→    // Update main sidebar element
+   375→    if (sidebarElement) {
+   376→      sidebarElement.classList.toggle('open', isOpen);
+   377→      sidebarElement.classList.toggle('closed', !isOpen);
+   378→    }
+   379→    
+   380→    // Show/hide collapsed vs expanded sections
+   381→    const collapsedDiv = document.getElementById('sidebar-collapsed');
+   382→    const expandedDiv = document.getElementById('sidebar-expanded');
+   383→    
+   384→    if (collapsedDiv) {
+   385→      // Collapsed div shows when sidebar is closed OR when in rail mode
+   386→      const showCollapsed = !isOpen || isCollapsed;
+   387→      collapsedDiv.classList.toggle('hidden', isOpen && !isCollapsed);
+   388→    }
+   389→    
+   390→    if (expandedDiv) {
+   391→      // Expanded div shows when sidebar is open AND not in rail mode
+   392→      expandedDiv.classList.toggle('hidden', !isOpen || isCollapsed);
+   393→    }
+   394→    
+   395→    // Update mobile menu button
+   396→    const mobileBtn = document.getElementById('mobile-menu-btn');
+   397→    if (mobileBtn) {
+   398→      mobileBtn.setAttribute('aria-expanded', String(isOpen));
+   399→      // Swap icons
+   400→      const menuIcon = mobileBtn.querySelector('.icon-menu');
+   401→      const xIcon = mobileBtn.querySelector('.icon-x');
+   402→      if (menuIcon && xIcon) {
+   403→        menuIcon.classList.toggle('hidden', isOpen);
+   404→        xIcon.classList.toggle('hidden', !isOpen);
+   405→      }
+   406→    }
+   407→    
+   408→    // Sync overlay
+   409→    syncOverlay();
+   410→    
+   411→    // Update state
+   412→    if (window.IDEState) {
+   413→      IDEState.setSidebarOpen(isOpen);
+   414→    }
+   415→  }
+   416→
+   417→  /**
+   418→   * Sync mobile overlay visibility with sidebar open state.
+   419→   * (Restored from v1: only show overlay on mobile when sidebar is open.)
+   420→   */
+   421→  function syncOverlay() {
+   422→    const mobileOverlay = document.getElementById('mobile-overlay');
+   423→    if (mobileOverlay) {
+   424→      // Only show overlay on mobile when sidebar is open
+   425→      const isMobile = window.innerWidth <= 767;
+   426→      mobileOverlay.classList.toggle('hidden', !isOpen || !isMobile);
+   427→    }
+   428→  }
+   429→
+   430→  /**
+   431→   * Set collapsed (rail-only) mode.
+   432→   *
+   433→   * Animation timing: the `.sidebar` element has `transition: width var(--transition-slow)`
+   434→   * (300ms). To make sidebar→rail animate the same way rail→sidebar does, we keep
+   435→   * #sidebar-expanded visible (clipped by .sidebar's overflow:hidden) while the width
+   436→   * shrinks, then swap to the rail after the transition completes. Without this delay,
+   437→   * the CSS rule `.sidebar.collapsed #sidebar-expanded { display: none }` would fire
+   438→   * instantly and the user would see the content vanish before the empty space collapses.
+   439→   */
+   440→  let collapseAnimTimeout = null;
+   441→  const COLLAPSE_ANIM_MS = 300; // matches --transition-slow
+   442→
+   443→  function setCollapsed(collapsed) {
+   444→    isCollapsed = collapsed;
+   445→
+   446→    // Cancel any pending content-swap from a previous toggle
+   447→    if (collapseAnimTimeout) {
+   448→      clearTimeout(collapseAnimTimeout);
+   449→      collapseAnimTimeout = null;
+   450→    }
+   451→
+   452→    if (sidebarElement) {
+   453→      sidebarElement.classList.toggle('collapsed', collapsed);
+   454→    }
+   455→
+   456→    // Restored from v1: When un-collapsing, ensure sidebar is open (not closed)
+   457→    if (!collapsed && !isOpen) {
+   458→      isOpen = true;
+   459→      if (sidebarElement) {
+   460→        sidebarElement.classList.add('open');
+   461→        sidebarElement.classList.remove('closed');
+   462→      }
+   463→    }
+   464→
+   465→    const collapsedDiv = document.getElementById('sidebar-collapsed');
+   466→    const expandedDiv = document.getElementById('sidebar-expanded');
+   467→
+   468→    if (collapsed) {
+   469→      // Collapsing sidebar → rail:
+   470→      //  - Keep #sidebar-expanded visible during the width animation. It will be
+   471→      //    clipped naturally by .sidebar's `overflow: hidden` as the width shrinks.
+   472→      //  - Keep #sidebar-collapsed hidden via .hidden (!important) so it doesn't
+   473→      //    steal layout space from #sidebar-expanded mid-animation (which would
+   474→      //    cause expanded content to reflow/jump).
+   475→      //  - After 300ms (width transition done), swap: hide expanded, show rail.
+   476→      if (expandedDiv) expandedDiv.classList.remove('hidden');
+   477→      if (collapsedDiv) collapsedDiv.classList.add('hidden');
+   478→
+   479→      collapseAnimTimeout = setTimeout(() => {
+   480→        if (expandedDiv) expandedDiv.classList.add('hidden');
+   481→        if (collapsedDiv) collapsedDiv.classList.remove('hidden');
+   482→        collapseAnimTimeout = null;
+   483→      }, COLLAPSE_ANIM_MS);
+   484→    } else {
+   485→      // Expanding rail → sidebar:
+   486→      //  - Show #sidebar-expanded immediately so it reveals progressively as the
+   487→      //    width grows (this is the direction the user already sees as "animated").
+   488→      //  - #sidebar-collapsed is auto-hidden by the CSS rule
+   489→      //    `.sidebar:not(.collapsed):not(.closed) #sidebar-collapsed { display: none }`
+   490→      //    the instant .collapsed is removed, which is fine for expand.
+   491→      if (expandedDiv) expandedDiv.classList.remove('hidden');
+   492→    }
+   493→
+   494→    // Keep overlay in sync (Restored from v1)
+   495→    syncOverlay();
+   496→
+   497→    // Persist state (Restored from v1)
+   498→    if (window.IDEState) {
+   499→      IDEState.setSidebarOpen(isOpen);
+   500→    }
+   501→  }
+   502→
+   503→  /**
+   504→   * Toggle collapsed (rail) mode
+   505→   */
+   506→  function toggleCollapse(forceCollapsed) {
+   507→    setCollapsed(typeof forceCollapsed === 'boolean' ? forceCollapsed : !isCollapsed);
+   508→  }
+   509→
+   510→  /**
+   511→   * Show sidebar (force open)
+   512→   */
+   513→  function showSidebar() {
+   514→    toggleSidebar(true);
+   515→  }
+   516→
+   517→  /**
+   518→   * Hide sidebar (force close)
+   519→   */
+   520→  function hideSidebar() {
+   521→    toggleSidebar(false);
+   522→  }
+   523→
+   524→  // ============================================
+   525→  // Tab Management
+   526→  // ============================================
+   527→  
+   528→  /**
+   529→   * Switch between sidebar tabs
+   530→   * HTML uses .tab-btn for tab buttons and #panel-* for panels
+   531→   */
+   532→  function switchTab(tabName, updateState = true) {
+   533→    if (!tabName) return;
+   534→    
+   535→    activeTab = tabName;
+   536→    
+   537→    // Update tab UI - both .tab-btn (expanded) and .sidebar-nav-btn (collapsed)
+   538→    const tabs = container.querySelectorAll('.tab-btn');
+   539→    tabs.forEach(tab => {
+   540→      const isActive = tab.dataset.tab === tabName;
+   541→      tab.classList.toggle('active', isActive);
+   542→      tab.setAttribute('aria-selected', String(isActive));
+   543→    });
+   544→    
+   545→    // Also update nav buttons in collapsed sidebar
+   546→    const navBtns = container.querySelectorAll('.sidebar-nav-btn');
+   547→    navBtns.forEach(btn => {
+   548→      btn.classList.toggle('active', btn.dataset.tab === tabName);
+   549→    });
+   550→    
+   551→    // Show/hide panels using correct IDs: panel-files, panel-search, etc.
+   552→    const panelMap = {
+   553→      'files': 'panel-files',
+   554→      'search': 'panel-search',
+   555→      'memory': 'panel-memory',
+   556→      'versions': 'panel-versions',
+   557→      'meetings': 'panel-meetings'
+   558→    };
+   559→    
+   560→    Object.entries(panelMap).forEach(([key, panelId]) => {
+   561→      const el = document.getElementById(panelId);
+   562→      if (el) {
+   563→        el.classList.toggle('active', key === tabName);
+   564→      }
+   565→    });
+   566→    
+   567→    // Update state
+   568→    if (updateState && window.IDEState) {
+   569→      IDEState.setActiveTab(tabName);
+   570→    }
+   571→  }
+   572→
+   573→  // ============================================
+   574→  // Project Operations
+   575→  // ============================================
+   576→  
+   577→  /**
+   578→   * Create a new project
+   579→   */
+   580→  async function createProject(displayName) {
+   581→    const validation = IDEUtils?.validateProjectName(displayName);
+   582→    if (!validation?.valid) {
+   583→      if (IDEUtils) IDEUtils.showToast(validation?.error || 'Invalid project name', 'error');
+   584→      return;
+   585→    }
+   586→    
+   587→    // Use slugified name internally, keep display name for UI
+   588→    const slug = validation.slug || IDEUtils?.slugify(displayName) || displayName;
+   589→    
+   590→    try {
+   591→      // Create in storage with slug as the key
+   592→      const project = await IDEStorage.Projects.create(slug);
+   593→      
+   594→      // Store display name separately if different from slug
+   595→      if (slug !== displayName.trim()) {
+   596→        project.displayName = displayName.trim();
+   597→        await IDEStorage.Projects.update(slug, { displayName: displayName.trim() });
+   598→      }
+   599→      
+   600→      // Set as current project
+   601→      if (window.IDEState) {
+   602→        await IDEState.setCurrentProject(project);
+   603→      }
+   604→      
+   605→      // Load project data
+   606→      await loadProjectData(project);
+   607→      
+   608→      // Hide modal
+   609→      hideModal(document.getElementById('new-project-modal'));
+   610→      
+   611→      // Clear input
+   612→      const input = document.getElementById('new-project-name');
+   613→      if (input) input.value = '';
+   614→      
+   615→      // Show success message with both names if different
+   616→      const showName = slug !== displayName.trim() 
+   617→        ? `${displayName.trim()} (${slug})` 
+   618→        : slug;
+   619→      if (IDEUtils) IDEUtils.showToast(`Project "${showName}" created!`, 'success');
+   620→      
+   621→      // Switch to files tab
+   622→      switchTab('files');
+   623→      
+   624→    } catch (error) {
+   625→      console.error('Failed to create project:', error);
+   626→      if (IDEUtils) IDEUtils.showToast(`Failed to create project: ${error.message}`, 'error');
+   627→    }
+   628→  }
+   629→
+   630→  /**
+   631→   * Import project from ZIP
+   632→   */
+   633→  async function importProject(fileInput, nameOverride) {
+   634→    if (!fileInput || !fileInput.files.length) return;
+   635→    
+   636→    const file = fileInput.files[0];
+   637→    
+   638→    // Validate file type (only allow ZIP files)
+   639→    if (!file.name.toLowerCase().endsWith('.zip') && file.type !== 'application/zip' && file.type !== 'application/x-zip-compressed') {
+   640→      if (IDEUtils) IDEUtils.showToast('Please select a valid .zip file', 'error');
+   641→      return;
+   642→    }
+   643→    
+   644→    // Validate file size (max 50MB to prevent browser crash/memory issues)
+   645→    const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+   646→    if (file.size > MAX_FILE_SIZE) {
+   647→      const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+   648→      if (IDEUtils) IDEUtils.showToast(`File too large (${sizeMB}MB). Maximum size is 50MB.`, 'error');
+   649→      return;
+   650→    }
+   651→    
+   652→    // Validate minimum file size (not empty)
+   653→    if (file.size === 0) {
+   654→      if (IDEUtils) IDEUtils.showToast('Selected file is empty', 'error');
+   655→      return;
+   656→    }
+   657→    
+   658→    const name = nameOverride || file.name.replace(/\.zip$/i, '');
+   659→    
+   660→    try {
+   661→      // Validate name first
+   662→      const validation = IDEUtils?.validateProjectName(name);
+   663→      if (!validation?.valid) {
+   664→        if (IDEUtils) IDEUtils.showToast(validation?.error || 'Invalid project name', 'error');
+   665→        return;
+   666→      }
+   667→      
+   668→      // Create project
+   669→      const project = await IDEStorage.Projects.create(name);
+   670→      
+   671→      // Read ZIP file
+   672→      if (window.JSZip) {
+   673→        let zip;
+   674→        try {
+   675→          zip = await JSZip.loadAsync(file);
+   676→        } catch (zipError) {
+   677→          console.error('Invalid ZIP file:', zipError);
+   678→          if (IDEUtils) IDEUtils.showToast('Invalid or corrupted ZIP file', 'error');
+   679→          return;
+   680→        }
+   681→        
+   682→        const files = {};
+   683→        const MAX_FILES = 1000; // Prevent ZIP bomb
+   684→        let totalSize = 0;
+   685→        
+   686→        // Extract all files with safety limits
+   687→        for (const [relativePath, zipEntry] of Object.entries(zip.files)) {
+   688→          // Safety: limit number of files
+   689→          if (Object.keys(files).length >= MAX_FILES) {
+   690→            console.warn(`ZIP contains more than ${MAX_FILES} files, truncating`);
+   691→            if (IDEUtils) IDEUtils.showToast(`Too many files in ZIP (limit: ${MAX_FILES}). Some files were skipped.`, 'warning');
+   692→            break;
+   693→          }
+   694→          
+   695→          if (!zipEntry.dir) {
+   696→            // Safety: check individual file size
+   697→            if (zipEntry._data?.uncompressedSize > 10 * 1024 * 1024) { // 10MB per file limit
+   698→              console.warn(`Skipping large file: ${relativePath}`);
+   699→              continue;
+   700→            }
+   701→            
+   702→            try {
+   703→              const content = await zipEntry.async('string');
+   704→              // Safety: sanitize path to prevent path traversal
+   705→              const safePath = relativePath.replace(/^\.+\//, '').replace(/^\//, '');
+   706→              if (safePath) {
+   707→                files[safePath] = content;
+   708→                totalSize += content.length;
+   709→              }
+   710→            } catch (readError) {
+   711→              console.warn(`Failed to read ${relativePath}:`, readError);
+   712→            }
+   713→          }
+   714→        }
+   715→        
+   716→        // Safety: check total extracted size
+   717→        if (totalSize > 100 * 1024 * 1024) { // 100MB total
+   718→          if (IDEUtils) IDEUtils.showToast('Extracted content exceeds size limit. Import may be incomplete.', 'warning');
+   719→        }
+   720→        
+   721→        // Import files to storage
+   722→        await IDEStorage.Files.importFiles(project.name, files);
+   723→        
+   724→        // Update project file count
+   725→        await IDEStorage.Projects.updateFileCount(project.name);
+   726→        
+   727→        // Set as current project
+   728→        if (window.IDEState) {
+   729→          await IDEState.setCurrentProject(project);
+   730→        }
+   731→        
+   732→        // Load data
+   733→        await loadProjectData(project);
+   734→        
+   735→        // Hide modal and reset
+   736→        hideModal(document.getElementById('import-modal'));
+   737→        fileInput.value = '';
+   738→        const nameInput = document.getElementById('import-name-input');
+   739→        if (nameInput) nameInput.value = '';
+   740→        
+   741→        if (IDEUtils) IDEUtils.showToast(`Imported ${Object.keys(files).length} files`, 'success');
+   742→        switchTab('files');
+   743→      }
+   744→      
+   745→    } catch (error) {
+   746→      console.error('Failed to import:', error);
+   747→      if (IDEUtils) IDEUtils.showToast(`Import failed: ${error.message}`, 'error');
+   748→    }
+   749→  }
+   750→
+   751→  /**
+   752→   * Switch to a different project
+   753→   */
+   754→  async function switchProject(projectName) {
+   755→    try {
+   756→      const project = await IDEStorage.Projects.get(projectName);
+   757→      if (project) {
+   758→        if (window.IDEState) {
+   759→          IDEState.setCurrentProject(project);
+   760→        }
+   761→        await loadProjectData(project);
+   762→      }
+   763→    } catch (error) {
+   764→      console.error('Failed to switch project:', error);
+   765→    }
+   766→  }
+   767→
+   768→  /**
+   769→   * Delete current project
+   770→   */
+   771→  async function deleteCurrentProject() {
+   772→    const project = IDEState?.get('currentProject');
+   773→    if (!project) return;
+   774→    
+   775→    const confirmed = confirm(`Are you sure you want to delete "${project.name}"? This cannot be undone.`);
+   776→    if (!confirmed) return;
+   777→    
+   778→    try {
+   779→      await IDEStorage.Projects.delete(project.name);
+   780→      
+   781→      // Clear state
+   782→      if (window.IDEState) {
+   783→        IDEState.setCurrentProject(null);
+   784→        IDEState.setMessages([]);
+   785→      }
+   786→      
+   787→      // Clear components
+   788→      if (fileTree) fileTree.clear();
+   789→      
+   790→      if (IDEUtils) IDEUtils.showToast(`Project "${project.name}" deleted`, 'success');
+   791→      
+   792→      // Reload projects list
+   793→      await populateProjectsList();
+   794→      
+   795→    } catch (error) {
+   796→      console.error('Failed to delete project:', error);
+   797→      if (IDEUtils) IDEUtils.showToast(`Delete failed: ${error.message}`, 'error');
+   798→    }
+   799→  }
+   800→
+   801→  /**
+   802→   * Load data for selected project into all panels
+   803→   */
+   804→  async function loadProjectData(project) {
+   805→    if (!project) {
+   806→      if (fileTree) fileTree.clear();
+   807→      return;
+   808→    }
+   809→    
+   810→    // Load file tree
+   811→    if (fileTree) {
+   812→      await fileTree.loadFilesForProject(project);
+   813→    }
+   814→    
+   815→    // Load other panel data
+   816→    await loadMemoryData(project.name);
+   817→    await loadVersionsData(project.name);
+   818→    await loadContextData(project.name);
+   819→    
+   820→    // Update project selector
+   821→    await populateProjectsList();
+   822→  }
+   823→
+   824→  /**
+   825→   * Populate project selector dropdown
+   826→   */
+   827→  /**
+   828→   * Populate projects list in sidebar
+   829→   * HTML uses #projects-list (div with role="listbox"), not a <select>
+   830→   */
+   831→  async function populateProjectsList() {
+   832→    const listContainer = document.getElementById('projects-list');
+   833→    const noProjectsEl = document.getElementById('no-projects');
+   834→    const loadingEl = document.getElementById('projects-loading');
+   835→    
+   836→    if (!listContainer) return;
+   837→    
+   838→    try {
+   839→      // Show loading
+   840→      if (loadingEl) {
+   841→        loadingEl.classList.remove('hidden');
+   842→      }
+   843→      if (noProjectsEl) {
+   844→        noProjectsEl.classList.add('hidden');
+   845→      }
+   846→      
+   847→      const projects = await IDEStorage.Projects.getAll();
+   848→      const currentProject = IDEState?.get('currentProject');
+   849→      
+   850→      // Hide loading
+   851→      if (loadingEl) {
+   852→        loadingEl.classList.add('hidden');
+   853→      }
+   854→      
+   855→      // Clear list
+   856→      listContainer.innerHTML = '';
+   857→      
+   858→      if (projects.length === 0) {
+   859→        if (noProjectsEl) {
+   860→          noProjectsEl.classList.remove('hidden');
+   861→        }
+   862→        listContainer.classList.add('hidden');
+   863→        return;
+   864→      }
+   865→      
+   866→      listContainer.classList.remove('hidden');
+   867→      
+   868→      // Render each project as a clickable item
+   869→      projects.forEach(p => {
+   870→        const item = document.createElement('div');
+   871→        item.className = `project-item ${currentProject?.name === p.name ? 'active' : ''}`;
+   872→        item.setAttribute('role', 'option');
+   873→        item.setAttribute('aria-selected', String(currentProject?.name === p.name));
+   874→        item.dataset.projectName = p.name;
+   875→        
+   876→        item.innerHTML = `
+   877→          <span class="project-icon">${IDEUtils?.Icons?.folder || ''}</span>
+   878→          <span class="project-name">${IDEUtils?.escapeHtml(p.displayName || p.name) || p.name}</span>
+   879→          <span class="project-meta">${IDEUtils?.formatRelativeTime(p.updatedAt) || ''}</span>
+   880→        `;
+   881→        
+   882→        // Click to switch project
+   883→        item.addEventListener('click', () => {
+   884→          switchProject(p.name);
+   885→        });
+   886→        
+   887→        // Double-click or context menu for more options
+   888→        item.addEventListener('contextmenu', (e) => {
+   889→          e.preventDefault();
+   890→          showProjectContextMenu(e, p);
+   891→        });
+   892→        
+   893→        listContainer.appendChild(item);
+   894→      });
+   895→      
+   896→    } catch (error) {
+   897→      console.error('Failed to load projects:', error);
+   898→      if (loadingEl) {
+   899→        loadingEl.classList.add('hidden');
+   900→      }
+   901→    }
+   902→  }
+   903→
+   904→  /**
+   905→   * Show context menu for project item
+   906→   */
+   907→  function showProjectContextMenu(event, project) {
+   908→    const menu = document.createElement('div');
+   909→    menu.className = 'context-menu';
+   910→    menu.innerHTML = `
+   911→      <div class="context-menu-item" data-action="switch">Open Project</div>
+   912→      <div class="context-menu-item" data-action="export">Export ZIP</div>
+   913→      <div class="context-menu-divider"></div>
+   914→      <div class="context-menu-item danger" data-action="delete">Delete Project</div>
+   915→    `;
+   916→    
+   917→    menu.style.left = event.pageX + 'px';
+   918→    menu.style.top = event.pageY + 'px';
+   919→    document.body.appendChild(menu);
+   920→    
+   921→    menu.querySelectorAll('.context-menu-item').forEach(item => {
+   922→      item.addEventListener('click', () => {
+   923→        const action = item.dataset.action;
+   924→        menu.remove();
+   925→        
+   926→        switch (action) {
+   927→          case 'switch':
+   928→            switchProject(project.name);
+   929→            break;
+   930→          case 'export':
+   931→            handleExportSingleProject(project);
+   932→            break;
+   933→          case 'delete':
+   934→            deleteProjectByName(project.name);
+   935→            break;
+   936→        }
+   937→      });
+   938→    });
+   939→    
+   940→    setTimeout(() => {
+   941→      document.addEventListener('click', function closeMenu(e) {
+   942→        if (!menu.contains(e.target)) {
+   943→          menu.remove();
+   944→          document.removeEventListener('click', closeMenu);
+   945→        }
+   946→      });
+   947→    }, 0);
+   948→  }
+   949→
+   950→  async function handleExportSingleProject(project) {
+   951→    try {
+   952→      if (IDEUtils) IDEUtils.showToast('Preparing export...', 'info');
+   953→      
+   954→      const files = await IDEStorage.Files.exportAsObject(project.name);
+   955→      
+   956→      if (window.JSZip) {
+   957→        const zip = new JSZip();
+   958→        Object.entries(files).forEach(([path, content]) => {
+   959→          zip.file(path, content);
+   960→        });
+   961→        
+   962→        const blob = await zip.generateAsync({ type: 'blob' });
+   963→        const url = URL.createObjectURL(blob);
+   964→        
+   965→        const link = document.createElement('a');
+   966→        link.href = url;
+   967→        link.download = `${project.name}.zip`;
+   968→        document.body.appendChild(link);
+   969→        link.click();
+   970→        document.body.removeChild(link);
+   971→        URL.revokeObjectURL(url);
+   972→        
+   973→        if (IDEUtils) IDEUtils.showToast(`Exported ${project.name}`, 'success');
+   974→      }
+   975→    } catch (error) {
+   976→      console.error('Export failed:', error);
+   977→      if (IDEUtils) IDEUtils.showToast('Export failed', 'error');
+   978→    }
+   979→  }
+   980→
+   981→  async function deleteProjectByName(name) {
+   982→    const confirmed = confirm(`Delete "${name}" and all its files? This cannot be undone.`);
+   983→    if (!confirmed) return;
+   984→    
+   985→    try {
+   986→      await IDEStorage.Projects.delete(name);
+   987→      
+   988→      // Clear state if this was the current project
+   989→      if (IDEState?.get('currentProject')?.name === name) {
+   990→        IDEState.setCurrentProject(null);
+   991→        IDEState.setMessages([]);
+   992→        if (AppState.fileTree) AppState.fileTree.clear();
+   993→      }
+   994→      
+   995→      // Refresh list
+   996→      await populateProjectsList();
+   997→      
+   998→      if (IDEUtils) IDEUtils.showToast(`Deleted ${name}`, 'success');
+   999→    } catch (error) {
+  1000→      console.error('Delete failed:', error);
+  1001→      if (IDEUtils) IDEUtils.showToast('Delete failed', 'error');
+  1002→    }
+  1003→  }
+  1004→
+  1005→  // ============================================
+  1006→  // Panel Data Loading
+  1007→  // ============================================
+  1008→  
+  1009→  async function loadMemoryData(projectName) {
+  1010→    if (!memoryPanel || !projectName) return;
+  1011→    
+  1012→    try {
+  1013→      const memory = await IDEStorage.Memory.get(projectName);
+  1014→      renderMemoryPanel(memory);
+  1015→    } catch (error) {
+  1016→      console.error('Failed to load memory:', error);
+  1017→    }
+  1018→  }
+  1019→
+  1020→  function renderMemoryPanel(memory) {
+  1021→    if (!memoryPanel) return;
+  1022→    
+  1023→    const content = memoryPanel.querySelector('.panel-content');
+  1024→    if (!content) return;
+  1025→    
+  1026→    if (!memory || (!memory.anchors?.length && !memory.keyDecisions?.length)) {
+  1027→      content.innerHTML = `
+  1028→        <div class="empty-state">
+  1029→          <p>No memory data yet</p>
+  1030→          <p class="hint">AI will build context as you work together</p>
+  1031→        </div>
+  1032→      `;
+  1033→      return;
+  1034→    }
+  1035→    
+  1036→    let html = '';
+  1037→    
+  1038→    if (memory.anchors?.length) {
+  1039→      html += '<h4>Context Anchors</h4><ul class="anchor-list">';
+  1040→      memory.anchors.forEach(a => {
+  1041→        html += `<li><strong>${a.type}:</strong> ${IDEUtils?.escapeHtml(a.content) || ''}</li>`;
+  1042→      });
+  1043→      html += '</ul>';
+  1044→    }
+  1045→    
+  1046→    if (memory.keyDecisions?.length) {
+  1047→      html += '<h4>Key Decisions</h4><ul class="decision-list">';
+  1048→      memory.keyDecisions.forEach(d => {
+  1049→        html += `<li>${IDEUtils?.escapeHtml(d) || ''}</li>`;
+  1050→      });
+  1051→      html += '</ul>';
+  1052→    }
+  1053→    
+  1054→    content.innerHTML = html;
+  1055→  }
+  1056→
+  1057→  async function loadVersionsData(projectName) {
+  1058→    if (!versionsPanel || !projectName) return;
+  1059→    
+  1060→    try {
+  1061→      const versions = await IDEStorage.Versions.getByProject(projectName);
+  1062→      renderVersionsPanel(versions);
+  1063→    } catch (error) {
+  1064→      console.error('Failed to load versions:', error);
+  1065→    }
+  1066→  }
+  1067→
+  1068→  function renderVersionsPanel(versions) {
+  1069→    if (!versionsPanel) return;
+  1070→    
+  1071→    const content = versionsPanel.querySelector('.panel-content');
+  1072→    if (!content) return;
+  1073→    
+  1074→    if (!versions?.length) {
+  1075→      content.innerHTML = `
+  1076→        <div class="empty-state">
+  1077→          <p>No version history</p>
+  1078→          <p class="hint">Create checkpoints to save your progress</p>
+  1079→        </div>
+  1080→      `;
+  1081→      return;
+  1082→    }
+  1083→    
+  1084→    let html = '<div class="version-list">';
+  1085→    versions.reverse().forEach(v => {
+  1086→      html += `
+  1087→        <div class="version-item" data-id="${v.id}">
+  1088→          <div class="version-header">
+  1089→            <span class="version-number">${v.versionNumber}</span>
+  1090→            <span class="version-date">${IDEUtils?.formatRelativeTime(v.createdAt) || ''}</span>
+  1091→          </div>
+  1092→          <p class="version-description">${IDEUtils?.escapeHtml(v.description) || ''}</p>
+  1093→          <div class="version-meta">
+  1094→            ${v.fileCount ? `<span>${v.fileCount} files</span>` : ''}
+  1095→            ${v.size ? `<span>${IDEUtils?.formatBytes(v.size) || ''}</span>` : ''}
+  1096→          </div>
+  1097→        </div>
+  1098→      `;
+  1099→    });
+  1100→    html += '</div>';
+  1101→    
+  1102→    content.innerHTML = html;
+  1103→  }
+  1104→
+  1105→  async function loadContextData(projectName) {
+  1106→    if (!contextPanel || !projectName) return;
+  1107→    
+  1108→    // Context is managed in state, not storage
+  1109→    const contextResults = IDEState?.get('contextResults') || [];
+  1110→    renderContextPanel(contextResults);
+  1111→  }
+  1112→
+  1113→  function renderContextPanel(contextResults) {
+  1114→    if (!contextPanel) return;
+  1115→    
+  1116→    const content = contextPanel.querySelector('.panel-content');
+  1117→    if (!content) return;
+  1118→    
+  1119→    if (!contextResults?.length) {
+  1120→      content.innerHTML = `
+  1121→        <div class="empty-state">
+  1122→          <p>No context items</p>
+  1123→          <p class="hint">Add items during search or AI will suggest relevant context</p>
+  1124→        </div>
+  1125→      `;
+  1126→      return;
+  1127→    }
+  1128→    
+  1129→    let html = '<ul class="context-list">';
+  1130→    contextResults.forEach(item => {
+  1131→      html += `
+  1132→        <li class="context-item" data-url="${item.url || ''}">
+  1133→          <span class="context-title">${IDEUtils?.escapeHtml(item.title || item.url) || ''}</span>
+  1134→          <button class="context-remove" data-url="${item.url || ''}" title="Remove">
+  1135→            ${IDEUtils?.Icons?.x || ''}
+  1136→          </button>
+  1137→        </li>
+  1138→      `;
+  1139→    });
+  1140→    html += '</ul>';
+  1141→    
+  1142→    content.innerHTML = html;
+  1143→    
+  1144→    // Wire up remove buttons
+  1145→    content.querySelectorAll('.context-remove').forEach(btn => {
+  1146→      btn.addEventListener('click', () => {
+  1147→        const url = btn.dataset.url;
+  1148→        if (url && window.IDEState) {
+  1149→          IDEState.removeFromContext(url);
+  1150→        }
+  1151→      });
+  1152→    });
+  1153→  }
+  1154→
+  1155→  // ============================================
+  1156→  // Search Functionality
+  1157→  // ============================================
+  1158→  
+  1159→  async function performSearch() {
+  1160→    const input = document.getElementById('search-input');
+  1161→    if (!input) return;
+  1162→    
+  1163→    const query = input.value.trim();
+  1164→    if (!query) return;
+  1165→    
+  1166→    const project = IDEState?.get('currentProject');
+  1167→    if (!project) {
+  1168→      if (IDEUtils) IDEUtils.showToast('Select a project first', 'warning');
+  1169→      return;
+  1170→    }
+  1171→    
+  1172→    // Show loading state
+  1173→    if (window.IDEState) {
+  1174→      IDEState.setSearching(true);
+  1175→      IDEState.setSearchQuery(query);
+  1176→    }
+  1177→    
+  1178→    try {
+  1179→      // Search in local files
+  1180→      const files = await IDEStorage.Files.getByProject(project.name);
+  1181→      const results = [];
+  1182→      
+  1183→      const lowerQuery = query.toLowerCase();
+  1184→      files.forEach(file => {
+  1185→        if (file.type === 'file' && file.content) {
+  1186→          const lines = file.content.split('\n');
+  1187→          lines.forEach((line, index) => {
+  1188→            if (line.toLowerCase().includes(lowerQuery)) {
+  1189→              results.push({
+  1190→                file: file.path,
+  1191→                line: index + 1,
+  1192→                content: line.trim(),
+  1193→                match: line.toLowerCase().indexOf(lowerQuery)
+  1194→              });
+  1195→            }
+  1196→          });
+  1197→        }
+  1198→      });
+  1199→      
+  1200→      // Update state with results
+  1201→      if (window.IDEState) {
+  1202→        IDEState.setSearchResults(results);
+  1203→        IDEState.setSearching(false);
+  1204→      }
+  1205→      
+  1206→      // Render results
+  1207→      renderSearchResults(results, query);
+  1208→      
+  1209→      // Switch to search tab
+  1210→      switchTab('search');
+  1211→      
+  1212→    } catch (error) {
+  1213→      console.error('Search failed:', error);
+  1214→      if (window.IDEState) {
+  1215→        IDEState.setSearching(false);
+  1216→      }
+  1217→    }
+  1218→  }
+  1219→
+  1220→  function renderSearchResults(results, query) {
+  1221→    if (!searchPanel) return;
+  1222→    
+  1223→    const content = searchPanel.querySelector('.results-container');
+  1224→    if (!content) return;
+  1225→    
+  1226→    if (!results?.length) {
+  1227→      content.innerHTML = `
+  1228→        <div class="no-results">
+  1229→          <span class="no-results-icon">${IDEUtils?.Icons?.search || ''}</span>
+  1230→          <p>No results found for "${IDEUtils?.escapeHtml(query) || query}"</p>
+  1231→        </div>
+  1232→      `;
+  1233→      return;
+  1234→    }
+  1235→    
+  1236→    let html = `<p class="results-count">${results.length} results found</p><ul class="search-results">`;
+  1237→    
+  1238→    // Group by file
+  1239→    const grouped = {};
+  1240→    results.forEach(r => {
+  1241→      if (!grouped[r.file]) grouped[r.file] = [];
+  1242→      grouped[r.file].push(r);
+  1243→    });
+  1244→    
+  1245→    Object.entries(grouped).forEach(([file, matches]) => {
+  1246→      html += `
+  1247→        <li class="result-group">
+  1248→          <div class="result-file">${IDEUtils?.getFileIcon(file) || ''} ${file}</div>
+  1249→          <ul class="result-matches">
+  1250→      `;
+  1251→      
+  1252→      matches.slice(0, 10).forEach(m => {
+  1253→        const highlighted = highlightMatch(m.content, query);
+  1254→        html += `
+  1255→          <li class="result-match" data-path="${file}" data-line="${m.line}">
+  1256→            <span class="line-num">${m.line}</span>
+  1257→            <span class="match-content">${highlighted}</span>
+  1258→          </li>
+  1259→        `;
+  1260→      });
+  1261→      
+  1262→      html += '</ul></li>';
+  1263→    });
+  1264→    
+  1265→    html += '</ul>';
+  1266→    content.innerHTML = html;
+  1267→    
+  1268→    // Wire up result clicks
+  1269→    content.querySelectorAll('.result-match').forEach(match => {
+  1270→      match.addEventListener('click', () => {
+  1271→        const path = match.dataset.path;
+  1272→        const line = parseInt(match.dataset.line);
+  1273→        openFileAtLine(path, line);
+  1274→      });
+  1275→    });
+  1276→  }
+  1277→
+  1278→  function highlightMatch(content, query) {
+  1279→    if (!content || !query) return IDEUtils?.escapeHtml(content) || '';
+  1280→    const escaped = IDEUtils?.escapeHtml(content) || content;
+  1281→    const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  1282→    return escaped.replace(regex, '<mark>$1</mark>');
+  1283→  }
+  1284→
+  1285→  function clearSearch() {
+  1286→    const input = document.getElementById('search-input');
+  1287→    if (input) input.value = '';
+  1288→    
+  1289→    if (window.IDEState) {
+  1290→      IDEState.clearSearchResults();
+  1291→    }
+  1292→    
+  1293→    if (searchPanel) {
+  1294→      const content = searchPanel.querySelector('.results-container');
+  1295→      if (content) content.innerHTML = '';
+  1296→    }
+  1297→  }
+  1298→
+  1299→  // ============================================
+  1300→  // File Actions
+  1301→  // ============================================
+  1302→  
+  1303→  function handleFileSelect(file) {
+  1304→    // File was clicked in tree - open in editor
+  1305→    if (window.CodeEditorComponent) {
+  1306→      CodeEditorComponent.openFile(file);
+  1307→    }
+  1308→    
+  1309→    // Focus editor
+  1310→    if (window.IDEState) {
+  1311→      IDEState.focusEditor();
+  1312→    }
+  1313→  }
+  1314→
+  1315→  function handleFileAction(action) {
+  1316→    // Handle file operations from tree (move, rename, etc.)
+  1317→    console.log('File action:', action);
+  1318→    
+  1319→    switch (action.type) {
+  1320→      case 'move':
+  1321→        // TODO: Implement move
+  1322→        break;
+  1323→      case 'delete':
+  1324→        // TODO: Confirm and delete
+  1325→        break;
+  1326→    }
+  1327→  }
+  1328→
+  1329→  async function openFileAtLine(path, line) {
+  1330→    const project = IDEState?.get('currentProject');
+  1331→    if (!project) return;
+  1332→    
+  1333→    try {
+  1334→      const file = await IDEStorage.Files.get(project.name, path);
+  1335→      if (file && window.CodeEditorComponent) {
+  1336→        CodeEditorComponent.openFile({ ...file, project: project.name });
+  1337→        // TODO: Scroll to line
+  1338→      }
+  1339→    } catch (error) {
+  1340→      console.error('Failed to open file:', error);
+  1341→    }
+  1342→  }
+  1343→
+  1344→  // ============================================
+  1345→  // Sidebar Resize Handle (adjustable expanded width)
+  1346→  // ============================================
+  1347→
+  1348→  /**
+  1349→   * Setup the drag handle on the right edge of the expanded sidebar.
+  1350→   * Dragging resizes --sidebar-width-expanded on the sidebar element,
+  1351→   * which both .sidebar and .sidebar-expanded read from. The custom
+  1352→   * width is persisted to localStorage and restored on next load.
+  1353→   */
+  1354→  function setupSidebarResizeHandle() {
+  1355→    const handle = sidebarElement?.querySelector('.sidebar-resize-handle');
+  1356→    if (!handle) return;
+  1357→
+  1358→    const STORAGE_KEY = 'ide:sidebar-width';
+  1359→    const MIN_REM = 12;   // 192px
+  1360→    const MAX_REM = 32;   // 512px
+  1361→    const DEFAULT_REM = 18;
+  1362→
+  1363→    // Restore saved width
+  1364→    try {
+  1365→      const saved = parseFloat(localStorage.getItem(STORAGE_KEY));
+  1366→      if (!isNaN(saved) && saved >= MIN_REM && saved <= MAX_REM) {
+  1367→        sidebarElement.style.setProperty('--sidebar-width-expanded', `${saved}rem`);
+  1368→      }
+  1369→    } catch (e) { /* ignore */ }
+  1370→
+  1371→    let dragging = false;
+  1372→    let startX = 0;
+  1373→    let startWidthRem = 0;
+  1374→
+  1375→    function onPointerDown(e) {
+  1376→      // Only resize when sidebar is expanded (not collapsed/closed)
+  1377→      if (sidebarElement.classList.contains('collapsed') ||
+  1378→          sidebarElement.classList.contains('closed')) return;
+  1379→      dragging = true;
+  1380→      startX = e.clientX || (e.touches && e.touches[0]?.clientX) || 0;
+  1381→      const current = getComputedStyle(sidebarElement).getPropertyValue('--sidebar-width-expanded').trim();
+  1382→      const m = String(current).match(/([\d.]+)rem/);
+  1383→      startWidthRem = m ? parseFloat(m[1]) : DEFAULT_REM;
+  1384→      handle.classList.add('dragging');
+  1385→      sidebarElement.classList.add('resizing');
+  1386→      document.body.style.cursor = 'col-resize';
+  1387→      document.body.style.userSelect = 'none';
+  1388→      e.preventDefault();
+  1389→    }
+  1390→
+  1391→    function onPointerMove(e) {
+  1392→      if (!dragging) return;
+  1393→      const x = e.clientX || (e.touches && e.touches[0]?.clientX) || 0;
+  1394→      const deltaPx = x - startX;
+  1395→      // Convert px to rem using the root font-size
+  1396→      const rootFontSize = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  1397→      const deltaRem = deltaPx / rootFontSize;
+  1398→      let newWidthRem = startWidthRem + deltaRem;
+  1399→      newWidthRem = Math.max(MIN_REM, Math.min(MAX_REM, newWidthRem));
+  1400→      sidebarElement.style.setProperty('--sidebar-width-expanded', `${newWidthRem}rem`);
+  1401→    }
+  1402→
+  1403→    function onPointerUp() {
+  1404→      if (!dragging) return;
+  1405→      dragging = false;
+  1406→      handle.classList.remove('dragging');
+  1407→      sidebarElement.classList.remove('resizing');
+  1408→      document.body.style.cursor = '';
+  1409→      document.body.style.userSelect = '';
+  1410→      // Persist
+  1411→      const current = getComputedStyle(sidebarElement).getPropertyValue('--sidebar-width-expanded').trim();
+  1412→      const m = String(current).match(/([\d.]+)rem/);
+  1413→      if (m) {
+  1414→        try { localStorage.setItem(STORAGE_KEY, m[1]); } catch (e) { /* ignore */ }
+  1415→      }
+  1416→    }
+  1417→
+  1418→    handle.addEventListener('mousedown', onPointerDown);
+  1419→    handle.addEventListener('touchstart', onPointerDown, { passive: false });
+  1420→    document.addEventListener('mousemove', onPointerMove);
+  1421→    document.addEventListener('touchmove', onPointerMove, { passive: false });
+  1422→    document.addEventListener('mouseup', onPointerUp);
+  1423→    document.addEventListener('touchend', onPointerUp);
+  1424→
+  1425→    // Keyboard support: arrow keys adjust width by 1rem
+  1426→    handle.addEventListener('keydown', (e) => {
+  1427→      if (sidebarElement.classList.contains('collapsed') ||
+  1428→          sidebarElement.classList.contains('closed')) return;
+  1429→      const current = getComputedStyle(sidebarElement).getPropertyValue('--sidebar-width-expanded').trim();
+  1430→      const m = String(current).match(/([\d.]+)rem/);
+  1431→      let w = m ? parseFloat(m[1]) : DEFAULT_REM;
+  1432→      if (e.key === 'ArrowLeft')  { w = Math.max(MIN_REM, w - 1); e.preventDefault(); }
+  1433→      else if (e.key === 'ArrowRight') { w = Math.min(MAX_REM, w + 1); e.preventDefault(); }
+  1434→      else if (e.key === 'Enter' || e.key === ' ') { w = DEFAULT_REM; e.preventDefault(); }
+  1435→      else return;
+  1436→      sidebarElement.style.setProperty('--sidebar-width-expanded', `${w}rem`);
+  1437→      try { localStorage.setItem(STORAGE_KEY, String(w)); } catch (e2) { /* ignore */ }
+  1438→    });
+  1439→  }
+  1440→
+  1441→  // ============================================
+  1442→  // File-Tree Panel Header Buttons
+  1443→  // (New File / New Folder / sort toggles)
+  1444→  // ============================================
+  1445→  
+  1446→  function setupFileTreeHeaderButtons() {
+  1447→    const newFileBtn = document.getElementById('new-file-btn');
+  1448→    const newFolderBtn = document.getElementById('new-folder-btn');
+  1449→    const sortNameBtn = document.getElementById('sort-name-btn');
+  1450→    const sortDateBtn = document.getElementById('sort-date-btn');
+  1451→    
+  1452→    if (newFileBtn && window.FileTreeComponent) {
+  1453→      newFileBtn.addEventListener('click', () => {
+  1454→        FileTreeComponent.showCreateFileDialog();
+  1455→      });
+  1456→    }
+  1457→    
+  1458→    if (newFolderBtn && window.FileTreeComponent) {
+  1459→      newFolderBtn.addEventListener('click', () => {
+  1460→        FileTreeComponent.showCreateFolderDialog();
+  1461→      });
+  1462→    }
+  1463→    
+  1464→    // Sort by name toggle: cycles asc <-> desc
+  1465→    if (sortNameBtn && window.FileTreeComponent) {
+  1466→      sortNameBtn.addEventListener('click', () => {
+  1467→        const cur = FileTreeComponent.getSort();
+  1468→        let newDir;
+  1469→        if (cur.key === 'name') {
+  1470→          // Already sorting by name: flip direction
+  1471→          newDir = cur.dir === 'asc' ? 'desc' : 'asc';
+  1472→        } else {
+  1473→          // Switching from date to name: default to asc (A→Z)
+  1474→          newDir = 'asc';
+  1475→        }
+  1476→        FileTreeComponent.setSort('name', newDir);
+  1477→        updateSortButtonStates();
+  1478→      });
+  1479→    }
+  1480→    
+  1481→    // Sort by date toggle: cycles desc <-> asc
+  1482→    if (sortDateBtn && window.FileTreeComponent) {
+  1483→      sortDateBtn.addEventListener('click', () => {
+  1484→        const cur = FileTreeComponent.getSort();
+  1485→        let newDir;
+  1486→        if (cur.key === 'date') {
+  1487→          // Already sorting by date: flip direction
+  1488→          newDir = cur.dir === 'desc' ? 'asc' : 'desc';
+  1489→        } else {
+  1490→          // Switching from name to date: default to desc (newest first)
+  1491→          newDir = 'desc';
+  1492→        }
+  1493→        FileTreeComponent.setSort('date', newDir);
+  1494→        updateSortButtonStates();
+  1495→      });
+  1496→    }
+  1497→    
+  1498→    // Initial sync of button visual states with the default sort (name/asc)
+  1499→    updateSortButtonStates();
+  1500→  }
+  1501→  
+  1502→  /**
+  1503→   * Update the aria-pressed, title, and icon state of the two sort-toggle
+  1504→   * buttons based on the current FileTreeComponent sort state.
+  1505→   */
+  1506→  function updateSortButtonStates() {
+  1507→    if (!window.FileTreeComponent) return;
+  1508→    const { key, dir } = FileTreeComponent.getSort();
+  1509→    
+  1510→    const sortNameBtn = document.getElementById('sort-name-btn');
+  1511→    const sortDateBtn = document.getElementById('sort-date-btn');
+  1512→    
+  1513→    if (sortNameBtn) {
+  1514→      const isActive = key === 'name';
+  1515→      const isAsc = dir === 'asc';
+  1516→      sortNameBtn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+  1517→      sortNameBtn.classList.toggle('active', isActive);
+  1518→      sortNameBtn.title = isActive
+  1519→        ? (isAsc ? 'Sorting by name (A→Z). Click to reverse.' : 'Sorting by name (Z→A). Click to reverse.')
+  1520→        : 'Sort by name (A→Z)';
+  1521→      /* FIX: always show at least one icon so the button is never blank.
+  1522→         When active, show the icon matching the current direction.
+  1523→         When not active, show the default (asc) icon as a preview. */
+  1524→      const ascIcon = sortNameBtn.querySelector('.icon-asc');
+  1525→      const descIcon = sortNameBtn.querySelector('.icon-desc');
+  1526→      if (ascIcon && descIcon) {
+  1527→        const showAsc = isActive ? isAsc : true; // default to asc when inactive
+  1528→        ascIcon.classList.toggle('hidden', !showAsc);
+  1529→        descIcon.classList.toggle('hidden', showAsc);
+  1530→      }
+  1531→    }
+  1532→
+  1533→    if (sortDateBtn) {
+  1534→      const isActive = key === 'date';
+  1535→      const isDesc = dir === 'desc'; // "desc" = newest-first
+  1536→      sortDateBtn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+  1537→      sortDateBtn.classList.toggle('active', isActive);
+  1538→      sortDateBtn.title = isActive
+  1539→        ? (isDesc ? 'Sorting by date (Newest first). Click to reverse.' : 'Sorting by date (Oldest first). Click to reverse.')
+  1540→        : 'Sort by date (Newest first)';
+  1541→      /* FIX: always show at least one icon so the button is never blank.
+  1542→         When active, show the icon matching the current direction.
+  1543→         When not active, show the default (desc=newest-first) icon as a preview. */
+  1544→      const ascIcon = sortDateBtn.querySelector('.icon-asc');
+  1545→      const descIcon = sortDateBtn.querySelector('.icon-desc');
+  1546→      if (ascIcon && descIcon) {
+  1547→        const showDesc = isActive ? isDesc : true; // default to desc when inactive
+  1548→        descIcon.classList.toggle('hidden', !showDesc);
+  1549→        ascIcon.classList.toggle('hidden', showDesc);
+  1550→      }
+  1551→    }
+  1552→  }
+  1553→  
+  1554→  // ============================================
+  1555→  // Modal Helpers
+  1556→  // ============================================
+  1557→  
+  1558→  function showModal(modal) {
+  1559→    if (!modal) return;
+  1560→    modal.classList.remove('hidden');
+  1561→    
+  1562→    // Focus first input
+  1563→    const input = modal.querySelector('input:not([type="hidden"])');
+  1564→    if (input) setTimeout(() => input.focus(), 100);
+  1565→    
+  1566→    // Trap focus (basic)
+  1567→    modal.addEventListener('keydown', trapFocus);
+  1568→  }
+  1569→
+  1570→  function hideModal(modal) {
+  1571→    if (!modal) return;
+  1572→    modal.classList.add('hidden');
+  1573→    modal.removeEventListener('keydown', trapFocus);
+  1574→  }
+  1575→
+  1576→  function trapFocus(e) {
+  1577→    if (e.key === 'Escape') {
+  1578→      hideModal(e.currentTarget);
+  1579→    }
+  1580→  }
+  1581→
+  1582→  // ============================================
+  1583→  // Settings Panel
+  1584→  // ============================================
+  1585→  
+  1586→  function toggleSettings(show) {
+  1587→    // HTML uses #settings-modal with .modal-body containing .setting-group elements
+  1588→    const settingsModal = document.getElementById('settings-modal');
+  1589→    if (!settingsModal) return;
+  1590→    
+  1591→    if (show) {
+  1592→      settingsModal.classList.remove('hidden');
+  1593→      setupSettingsHandlers(settingsModal);
+  1594→    } else {
+  1595→      settingsModal.classList.add('hidden');
+  1596→    }
+  1597→  }
+  1598→
+  1599→  /**
+  1600→   * Setup event handlers for settings modal - uses EXISTING HTML structure
+  1601→   * HTML has: .modal-body > .setting-group with #theme-select, #font-scale-slider, etc.
+  1602→   */
+  1603→  function setupSettingsHandlers(modal) {
+  1604→    const settings = IDEState?.get('settings') || {};
+  1605→    
+  1606→    // Theme selector (#theme-select is a <select> in HTML)
+  1607→    const themeSelect = modal.querySelector('#theme-select');
+  1608→    if (themeSelect) {
+  1609→      // Set current value — resolve legacy theme IDs (graphite, midnight, etc.)
+  1610→      // to their current equivalent so the dropdown shows the right option.
+  1611→      const rawTheme = settings.theme || 'unthemed';
+  1612→      const currentTheme = window.IDEThemes
+  1613→        ? IDEThemes.resolveThemeId(rawTheme)
+  1614→        : rawTheme;
+  1615→      themeSelect.value = currentTheme;
+  1616→      
+  1617→      // Remove old listener to avoid duplicates
+  1618→      const newThemeSelect = themeSelect.cloneNode(true);
+  1619→      themeSelect.parentNode.replaceChild(newThemeSelect, themeSelect);
+  1620→      
+  1621→      newThemeSelect.addEventListener('change', (e) => {
+  1622→        if (window.IDEThemes) {
+  1623→          IDEThemes.applyTheme(e.target.value);
+  1624→        }
+  1625→        if (window.IDEState) {
+  1626→          IDEState.updateSettings({ theme: e.target.value });
+  1627→        }
+  1628→      });
+  1629→    }
+  1630→    
+  1631→    // Font scale slider (#font-scale-slider)
+  1632→    const fontSlider = modal.querySelector('#font-scale-slider');
+  1633→    const fontScaleValue = modal.querySelector('#font-scale-value');
+  1634→    if (fontSlider && fontScaleValue) {
+  1635→      fontSlider.value = settings.fontScale || 1;
+  1636→      fontScaleValue.textContent = (settings.fontScale || 1) + 'x';
+  1637→      
+  1638→      const newFontSlider = fontSlider.cloneNode(true);
+  1639→      fontSlider.parentNode.replaceChild(newFontSlider, fontSlider);
+  1640→      
+  1641→      newFontSlider.addEventListener('input', (e) => {
+  1642→        const scale = parseFloat(e.target.value);
+  1643→        fontScaleValue.textContent = scale.toFixed(2) + 'x';
+  1644→        if (window.IDEThemes) {
+  1645→          IDEThemes.setFontScale(scale);
+  1646→        }
+  1647→      });
+  1648→      
+  1649→      newFontSlider.addEventListener('change', (e) => {
+  1650→        const scale = parseFloat(e.target.value);
+  1651→        if (window.IDEState) {
+  1652→          IDEState.updateSettings({ fontScale: scale });
+  1653→        }
+  1654→      });
+  1655→    }
+  1656→    
+  1657→    // Notifications toggle (#notifications-toggle)
+  1658→    const notifToggle = modal.querySelector('#notifications-toggle');
+  1659→    if (notifToggle) {
+  1660→      notifToggle.checked = settings.showNotifications !== false; // default true
+  1661→      
+  1662→      const newNotifToggle = notifToggle.cloneNode(true);
+  1663→      notifToggle.parentNode.replaceChild(newNotifToggle, notifToggle);
+  1664→      
+  1665→      newNotifToggle.addEventListener('change', (e) => {
+  1666→        if (window.IDEState) {
+  1667→          IDEState.updateSettings({ showNotifications: e.target.checked });
+  1668→        }
+  1669→      });
+  1670→    }
+  1671→    
+  1672→    // ZIP backup toggle (#zip-backup-toggle)
+  1673→    const zipToggle = modal.querySelector('#zip-backup-toggle');
+  1674→    if (zipToggle) {
+  1675→      zipToggle.checked = settings.autoCreateZipBackup || false;
+  1676→      
+  1677→      const newZipToggle = zipToggle.cloneNode(true);
+  1678→      zipToggle.parentNode.replaceChild(newZipToggle, zipToggle);
+  1679→      
+  1680→      newZipToggle.addEventListener('change', (e) => {
+  1681→        if (window.IDEState) {
+  1682→          IDEState.updateSettings({ autoCreateZipBackup: e.target.checked });
+  1683→        }
+  1684→      });
+  1685→    }
+  1686→
+  1687→    // Sound effects toggle (#sound-effects-toggle) — ported from v1 IDE
+  1688→    const soundToggle = modal.querySelector('#sound-effects-toggle');
+  1689→    if (soundToggle) {
+  1690→      soundToggle.checked = settings.soundEffects || false;
+  1691→
+  1692→      const newSoundToggle = soundToggle.cloneNode(true);
+  1693→      soundToggle.parentNode.replaceChild(newSoundToggle, soundToggle);
+  1694→
+  1695→      newSoundToggle.addEventListener('change', (e) => {
+  1696→        if (window.IDEState) {
+  1697→          IDEState.updateSettings({ soundEffects: e.target.checked });
+  1698→        }
+  1699→        // Play a confirmation cue immediately so the user hears what it sounds like
+  1700→        if (e.target.checked && window.IDEUtils && IDEUtils.playSound) {
+  1701→          IDEUtils.playSound('success');
+  1702→        }
+  1703→      });
+  1704→    }
+  1705→
+  1706→    // Word wrap toggle (#word-wrap-toggle) — ported from v1 IDE
+  1707→    const wordWrapToggle = modal.querySelector('#word-wrap-toggle');
+  1708→    if (wordWrapToggle) {
+  1709→      wordWrapToggle.checked = settings.wordWrap !== false; // default true
+  1710→
+  1711→      const newWordWrapToggle = wordWrapToggle.cloneNode(true);
+  1712→      wordWrapToggle.parentNode.replaceChild(newWordWrapToggle, wordWrapToggle);
+  1713→
+  1714→      newWordWrapToggle.addEventListener('change', (e) => {
+  1715→        if (window.IDEState) {
+  1716→          IDEState.updateSettings({ wordWrap: e.target.checked });
+  1717→        }
+  1718→        document.dispatchEvent(new CustomEvent('ide:settings-applied', {
+  1719→          detail: { settings: IDEState.get('settings'), prev: {} }
+  1720→        }));
+  1721→      });
+  1722→    }
+  1723→
+  1724→    // Line numbers toggle (#line-numbers-toggle) — ported from v1 IDE
+  1725→    const lineNumbersToggle = modal.querySelector('#line-numbers-toggle');
+  1726→    if (lineNumbersToggle) {
+  1727→      lineNumbersToggle.checked = settings.lineNumbers !== false; // default true
+  1728→
+  1729→      const newLineNumbersToggle = lineNumbersToggle.cloneNode(true);
+  1730→      lineNumbersToggle.parentNode.replaceChild(newLineNumbersToggle, lineNumbersToggle);
+  1731→
+  1732→      newLineNumbersToggle.addEventListener('change', (e) => {
+  1733→        if (window.IDEState) {
+  1734→          IDEState.updateSettings({ lineNumbers: e.target.checked });
+  1735→        }
+  1736→        document.dispatchEvent(new CustomEvent('ide:settings-applied', {
+  1737→          detail: { settings: IDEState.get('settings'), prev: {} }
+  1738→        }));
+  1739→      });
+  1740→    }
+  1741→
+  1742→    // Auto-save toggle (#auto-save-toggle) — ported from v1 IDE
+  1743→    const autoSaveToggle = modal.querySelector('#auto-save-toggle');
+  1744→    if (autoSaveToggle) {
+  1745→      autoSaveToggle.checked = settings.autoSave || false;
+  1746→
+  1747→      const newAutoSaveToggle = autoSaveToggle.cloneNode(true);
+  1748→      autoSaveToggle.parentNode.replaceChild(newAutoSaveToggle, autoSaveToggle);
+  1749→
+  1750→      newAutoSaveToggle.addEventListener('change', (e) => {
+  1751→        if (window.IDEState) {
+  1752→          IDEState.updateSettings({ autoSave: e.target.checked });
+  1753→        }
+  1754→        if (window.IDEUtils && IDEUtils.showToast) {
+  1755→          IDEUtils.showToast(
+  1756→            e.target.checked ? 'Auto-save enabled' : 'Auto-save disabled',
+  1757→            'info',
+  1758→            2000
+  1759→          );
+  1760→        }
+  1761→      });
+  1762→    }
+  1763→
+  1764→    // LLM Provider selection - find or create the section
+  1765→    setupLLMProviderSelection(modal, settings);
+  1766→    
+  1767→    // Export/Clear buttons - these may need to be created or already exist
+  1768→    setupDataButtons(modal);
+  1769→  }
+  1770→
+  1771→  /**
+  1772→   * Setup LLM Provider Selection with free public options
+  1773→   */
+  1774→  function setupLLMProviderSelection(modal, settings) {
+  1775→    let llmGroup = modal.querySelector('#llm-provider-group');
+  1776→    
+  1777→    // Create the LLM section if it doesn't exist
+  1778→    if (!llmGroup) {
+  1779→      const modalBody = modal.querySelector('.modal-body');
+  1780→      if (!modalBody) return;
+  1781→      
+  1782→      llmGroup = document.createElement('div');
+  1783→      llmGroup.className = 'setting-group';
+  1784→      llmGroup.id = 'llm-provider-group';
+  1785→      llmGroup.innerHTML = `
+  1786→        <label class="setting-label" for="llm-provider-select">AI Provider (Free Public LLMs)</label>
+  1787→        <select id="llm-provider-select" class="select" aria-label="Select AI provider">
+  1788→          <option value="">-- Select Provider --</option>
+  1789→          <optgroup label="Free Tier / Open Source">
+  1790→            <option value="ollama-local">Ollama (Local)</option>
+  1791→            <option value="huggingface">Hugging Face Inference API</option>
+  1792→          </optgroup>
+  1793→          <optgroup label="Free Tier (API Key Required)">
+  1794→            <option value="openai-free">OpenAI GPT-3.5-Turbo (Free Tier)</option>
+  1795→            <option value="google-ai">Google Gemini Flash (Free Tier)</option>
+  1796→            <option value="groq">Groq (Fast Free Inference)</option>
+  1797→            <option value="together-ai">Together AI (Free Tier)</option>
+  1798→          </optgroup>
+  1799→          <optgroup label="Open Models (Self-Hosted)">
+  1800→            <option value="llamacpp">Llama.cpp Server</option>
+  1801→            <option value="vllm">vLLM Server</option>
+  1802→            <option value="localai">LocalAI</option>
+  1803→          </optgroup>
+  1804→        </select>
+  1805→        <div id="llm-config-area" class="llm-config-area" style="margin-top: 12px; display: none;">
+  1806→          <div class="setting-group" style="border-bottom: none; padding-bottom: 0;">
+  1807→            <label class="setting-label" for="llm-api-key">API Key (if required)</label>
+  1808→            <input type="password" id="llm-api-key" class="input" placeholder="Enter API key..." />
+  1809→          </div>
+  1810→          <div class="setting-group" style="border-bottom: none; padding-bottom: 0;">
+  1811→            <label class="setting-label" for="llm-base-url">Base URL (for self-hosted)</label>
+  1812→            <input type="text" id="llm-base-url" class="input" placeholder="http://localhost:11434" />
+  1813→          </div>
+  1814→          <div class="setting-group" style="border-bottom: none; padding-bottom: 0;">
+  1815→            <label class="setting-label" for="llm-model-name">Model Name</label>
+  1816→            <input type="text" id="llm-model-name" class="input" placeholder="e.g., llama2, mistral, codellama" />
+  1817→          </div>
+  1818→          <button class="btn btn-primary btn-sm" id="save-llm-config" style="margin-top: 8px;">Save Configuration</button>
+  1819→        </div>
+  1820→        <p class="form-hint" id="llm-status-hint" style="margin-top: 8px;">Choose an AI provider to enable chat features</p>
+  1821→      `;
+  1822→      
+  1823→      // Insert before the last setting group (or append)
+  1824→      const lastGroup = modalBody.querySelector('.setting-group:last-of-type');
+  1825→      if (lastGroup && lastGroup.id !== 'llm-provider-group') {
+  1826→        lastGroup.parentNode.insertBefore(llmGroup, lastGroup.nextSibling);
+  1827→      } else {
+  1828→        modalBody.appendChild(llmGroup);
+  1829→      }
+  1830→    }
+  1831→    
+  1832→    // Set current values
+  1833→    const providerSelect = llmGroup.querySelector('#llm-provider-select');
+  1834→    const apiKeyInput = llmGroup.querySelector('#llm-api-key');
+  1835→    const baseUrlInput = llmGroup.querySelector('#llm-base-url');
+  1836→    const modelNameInput = llmGroup.querySelector('#llm-model-name');
+  1837→    const configArea = llmGroup.querySelector('#llm-config-area');
+  1838→    const statusHint = llmGroup.querySelector('#llm-status-hint');
+  1839→    const saveBtn = llmGroup.querySelector('#save-llm-config');
+  1840→    
+  1841→    if (providerSelect) {
+  1842→      providerSelect.value = settings.llmProvider || '';
+  1843→      
+  1844→      // Show/hide config area based on selection
+  1845→      const toggleConfigArea = () => {
+  1846→        const val = providerSelect.value;
+  1847→        const needsConfig = ['ollama-local', 'llamacpp', 'vllm', 'localai', 'huggingface'].includes(val);
+  1848→        const needsApiKey = ['openai-free', 'google-ai', 'groq', 'together-ai'].includes(val);
+  1849→        
+  1850→        if (configArea) {
+  1851→          configArea.style.display = (needsConfig || needsApiKey) ? 'block' : 'none';
+  1852→        }
+  1853→        
+  1854→        // Update hint text
+  1855→        if (statusHint) {
+  1856→          if (val === '') {
+  1857→            statusHint.textContent = 'Choose an AI provider to enable chat features';
+  1858→            statusHint.className = 'form-hint';
+  1859→          } else if (['ollama-local', 'llamacpp', 'vllm', 'localai'].includes(val)) {
+  1860→            statusHint.textContent = '✓ Local provider - no API key needed. Enter your server URL below.';
+  1861→            statusHint.className = 'form-hint success';
+  1862→          } else if (val === 'huggingface') {
+  1863→            statusHint.textContent = '⚠ Free tier available. Get API key from huggingface.co';
+  1864→            statusHint.className = 'form-hint';
+  1865→          } else {
+  1866→            statusHint.textContent = 'ℹ Free tier available. You may need to sign up for an API key.';
+  1867→            statusHint.className = 'form-hint';
+  1868→          }
+  1869→        }
+  1870→      };
+  1871→      
+  1872→      // Remove old listener
+  1873→      const newSelect = providerSelect.cloneNode(true);
+  1874→      providerSelect.parentNode.replaceChild(newSelect, providerSelect);
+  1875→      
+  1876→      newSelect.addEventListener('change', toggleConfigArea);
+  1877→      
+  1878→      // Initial state
+  1879→      setTimeout(toggleConfigArea, 0);
+  1880→      
+  1881→      // Load saved config
+  1882→      if (apiKeyInput) apiKeyInput.value = settings.llmApiKey || '';
+  1883→      if (baseUrlInput) baseUrlInput.value = settings.llmBaseUrl || '';
+  1884→      if (modelNameInput) modelNameInput.value = settings.llmModelName || '';
+  1885→      
+  1886→      // Save button handler
+  1887→      if (saveBtn) {
+  1888→        saveBtn.onclick = () => {
+  1889→          const config = {
+  1890→            llmProvider: newSelect.value,
+  1891→            llmApiKey: apiKeyInput?.value || '',
+  1892→            llmBaseUrl: baseUrlInput?.value || '',
+  1893→            llmModelName: modelNameInput?.value || ''
+  1894→          };
+  1895→          
+  1896→          if (window.IDEState) {
+  1897→            IDEState.updateSettings(config);
+  1898→          }
+  1899→          
+  1900→          if (IDEUtils) {
+  1901→            IDEUtils.showToast('LLM configuration saved!', 'success');
+  1902→          }
+  1903→          
+  1904→          if (statusHint) {
+  1905→            statusHint.textContent = '✓ Configuration saved successfully!';
+  1906→            statusHint.className = 'form-hint success';
+  1907→          }
+  1908→        };
+  1909→      }
+  1910→    }
+  1911→  }
+  1912→
+  1913→  /**
+  1914→   * Setup data export/clear buttons
+  1915→   */
+  1916→  function setupDataButtons(modal) {
+  1917→    // Check if buttons already exist, if not create them
+  1918→    let exportBtn = modal.querySelector('#export-data-btn');
+  1919→    let clearBtn = modal.querySelector('#clear-data-btn');
+  1920→    
+  1921→    if (!exportBtn || !clearBtn) {
+  1922→      const modalBody = modal.querySelector('.modal-body');
+  1923→      if (!modalBody) return;
+  1924→      
+  1925→      // Create data section if it doesn't exist
+  1926→      let dataGroup = modal.querySelector('#data-operations-group');
+  1927→      if (!dataGroup) {
+  1928→        dataGroup = document.createElement('div');
+  1929→        dataGroup.className = 'setting-group';
+  1930→        dataGroup.id = 'data-operations-group';
+  1931→        dataGroup.style.borderBottom = 'none';
+  1932→        dataGroup.innerHTML = `
+  1933→          <h4 style="font-size: var(--font-size-sm); font-weight: 600; margin-bottom: var(--space-2); color: var(--color-text, #1f2937);">Data Management</h4>
+  1934→          <button class="btn btn-outline" id="export-data-btn" style="margin-bottom: var(--space-2); width: 100%;">Export All Data</button>
+  1935→          <button class="btn btn-outline btn-danger" id="clear-data-btn" style="width: 100%;">Clear All Data</button>
+  1936→        `;
+  1937→        modalBody.appendChild(dataGroup);
+  1938→        
+  1939→        exportBtn = dataGroup.querySelector('#export-data-btn');
+  1940→        clearBtn = dataGroup.querySelector('#clear-data-btn');
+  1941→      }
+  1942→    }
+  1943→    
+  1944→    // Wire up export button
+  1945→    if (exportBtn) {
+  1946→      const newExportBtn = exportBtn.cloneNode(true);
+  1947→      exportBtn.parentNode.replaceChild(newExportBtn, exportBtn);
+  1948→      newExportBtn.addEventListener('click', exportAllData);
+  1949→    }
+  1950→    
+  1951→    // Wire up clear button
+  1952→    if (clearBtn) {
+  1953→      const newClearBtn = clearBtn.cloneNode(true);
+  1954→      clearBtn.parentNode.replaceChild(newClearBtn, clearBtn);
+  1955→      newClearBtn.addEventListener('click', clearAllDataWithConfirm);
+  1956→    }
+  1957→  }
+  1958→
+  1959→  async function exportAllData() {
+  1960→    try {
+  1961→      const data = await IDEStorage.exportAll();
+  1962→      if (IDEUtils) {
+  1963→        IDEUtils.downloadJSON(data, `ide-backup-${Date.now()}.json`);
+  1964→        IDEUtils.showToast('Data exported successfully!', 'success');
+  1965→      }
+  1966→    } catch (error) {
+  1967→      console.error('Export failed:', error);
+  1968→      if (IDEUtils) IDEUtils.showToast('Export failed', 'error');
+  1969→    }
+  1970→  }
+  1971→
+  1972→  function clearAllDataWithConfirm() {
+  1973→    const confirmed = confirm('This will delete ALL your projects, files, and settings. Are you absolutely sure?');
+  1974→    if (!confirmed) return;
+  1975→    
+  1976→    const doubleConfirmed = confirm('This action CANNOT be UNDOED. Type "DELETE" to confirm.');
+  1977→    if (doubleConfirmed) {
+  1978→      IDEStorage.clearAll().then(() => {
+  1979→        if (window.IDEState) IDEState.reset();
+  1980→        location.reload();
+  1981→      });
+  1982→    }
+  1983→  }
+  1984→
+  1985→  // ============================================
+  1986→  // Public API
+  1987→  // ============================================
+  1988→  
+  1989→  return {
+  1990→    init,
+  1991→    toggleSidebar,
+  1992→    showSidebar,
+  1993→    hideSidebar,
+  1994→    toggleCollapse,
+  1995→    switchTab,
+  1996→    createProject,
+  1997→    importProject,
+  1998→    switchProject,
+  1999→    deleteCurrentProject,
+  2000→    loadProjectData,
+
+[showing lines 1-2000 of 2146; use offset=2001 with limit to continue reading]

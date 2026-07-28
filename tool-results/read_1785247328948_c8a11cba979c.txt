@@ -1,0 +1,890 @@
+     1→/**
+     2→ * SBIDE - Settings Panel Component
+     3→ * Manages theme selection, font size, and application settings
+     4→ */
+     5→
+     6→const SettingsPanelComponent = (() => {
+     7→  // ============================================
+     8→  // State
+     9→  // ============================================
+    10→  
+    11→  let isOpen = false;
+    12→  let modal = null;
+    13→  
+    14→  // Available themes with preview colors.
+    15→  // MUST stay in sync with /js/themes.js THEMES registry and /css/themes.css
+    16→  // palettes — these preview swatches show the user what they'll get.
+    17→  const themes = [
+    18→    // ---------- LIGHT (6) ----------
+    19→    { id: 'unthemed',  name: 'Default',    preview: { bg: '#ffffff', accent: '#4f46e5', border: '#e5e7eb' }, dark: false },
+    20→    { id: 'default',   name: 'Indigo',     preview: { bg: '#fafafe', accent: '#7c3aed', border: '#d9d6f5' }, dark: false },
+    21→    { id: 'light',     name: 'Paper',      preview: { bg: '#faf6f0', accent: '#b45309', border: '#e0d4bc' }, dark: false },
+    22→    { id: 'lightgrey', name: 'Light Grey', preview: { bg: '#f3f4f6', accent: '#0d9488', border: '#d1d5db' }, dark: false },
+    23→    { id: 'slate',     name: 'Slate',      preview: { bg: '#f8fafc', accent: '#334155', border: '#cbd5e1' }, dark: false },
+    24→    { id: 'azure',     name: 'Azure',      preview: { bg: '#faf9f8', accent: '#0078d4', border: '#d2d0ce' }, dark: false },
+    25→    // ---------- DARK (6) ----------
+    26→    { id: 'dark',      name: 'Dark',       preview: { bg: '#0f172a', accent: '#818cf8', border: '#334155' }, dark: true  },
+    27→    { id: 'midnight',  name: 'Midnight',   preview: { bg: '#1a1b26', accent: '#bb9af7', border: '#2d3149' }, dark: true  },
+    28→    { id: 'darkgrey',  name: 'Dark Grey',  preview: { bg: '#2d2d2d', accent: '#06b6d4', border: '#4a4a4a' }, dark: true  },
+    29→    { id: 'graphite',  name: 'Graphite',   preview: { bg: '#1c1a17', accent: '#d97706', border: '#3a342c' }, dark: true  },
+    30→    { id: 'carbon',    name: 'Carbon',     preview: { bg: '#161616', accent: '#0f62fe', border: '#393939' }, dark: true  },
+    31→    { id: 'black',     name: 'Black',      preview: { bg: '#000000', accent: '#22d3ee', border: '#262626' }, dark: true  }
+    32→  ];
+    33→  
+    34→  // Font scale options
+    35→  const fontScales = [
+    36→    { value: 0.875, label: 'XS', description: 'Extra Small' },
+    37→    { value: 0.9375, label: 'SM', description: 'Small' },
+    38→    { value: 1, label: 'MD', description: 'Medium (Default)' },
+    39→    { value: 1.0625, label: 'LG', description: 'Large' },
+    40→    { value: 1.125, label: 'XL', description: 'Extra Large' },
+    41→    { value: 1.25, label: 'XXL', description: 'Very Large' }
+    42→  ];
+    43→
+    44→  // ============================================
+    45→  // Initialization
+    46→  // ============================================
+    47→  
+    48→  function init() {
+    49→    // Listen for open settings events
+    50→    document.addEventListener('click', (e) => {
+    51→      if (e.target.closest('#settings-btn')) {
+    52→        open();
+    53→      }
+    54→    });
+    55→    
+    56→    // Load saved settings
+    57→    loadSettings();
+    58→    
+    59→    // Subscribe to state changes
+    60→    if (window.IDEState) {
+    61→      IDEState.subscribe((state) => {
+    62→        if (state.settings) {
+    63→          syncUIWithSettings(state.settings);
+    64→        }
+    65→      });
+    66→    }
+    67→  }
+    68→
+    69→  // ============================================
+    70→  // Modal Management
+    71→  // ============================================
+    72→  
+    73→  function open() {
+    74→    if (isOpen) return;
+    75→    isOpen = true;
+    76→    
+    77→    renderModal();
+    78→  }
+    79→  
+    80→  function close() {
+    81→    if (!isOpen) return;
+    82→    isOpen = false;
+    83→    
+    84→    if (modal) {
+    85→      modal.remove();
+    86→      modal = null;
+    87→    }
+    88→  }
+    89→
+    90→  /**
+    91→   * Render the settings modal
+    92→   */
+    93→  function renderModal() {
+    94→    modal = document.createElement('div');
+    95→    modal.className = 'modal-overlay';
+    96→    modal.id = 'settings-modal';
+    97→    modal.setAttribute('role', 'dialog');
+    98→    modal.setAttribute('aria-modal', 'true');
+    99→    modal.setAttribute('aria-labelledby', 'settings-modal-title');
+   100→    
+   101→    const currentSettings = getSettings();
+   102→    // Resolve legacy theme IDs (graphite, midnight, etc.) to their current
+   103→    // equivalent so the picker highlights the correct active theme.
+   104→    const activeThemeId = window.IDEThemes
+   105→      ? IDEThemes.resolveThemeId(currentSettings.theme)
+   106→      : currentSettings.theme;
+   107→    
+   108→    modal.innerHTML = `
+   109→      <div class="modal modal-lg">
+   110→        <div class="modal-header">
+   111→          <h2 class="modal-title" id="settings-modal-title">Settings</h2>
+   112→          <button class="icon-btn settings-close-btn" aria-label="Close settings">
+   113→            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   114→              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+   115→            </svg>
+   116→          </button>
+   117→        </div>
+   118→        
+   119→        <div class="modal-body">
+   120→          <!-- Theme Section -->
+   121→          <section class="settings-section">
+   122→            <h3 class="settings-section-title">Theme</h3>
+   123→            <p class="settings-section-description">Choose your preferred color scheme</p>
+   124→            
+   125→            <div class="theme-grid" role="radiogroup" aria-label="Theme selection">
+   126→              ${themes.map(theme => `
+   127→                <button 
+   128→                  class="theme-option ${activeThemeId === theme.id ? 'active' : ''}"
+   129→                  data-theme-id="${theme.id}"
+   130→                  role="radio"
+   131→                  aria-checked="${activeThemeId === theme.id}"
+   132→                  title="${theme.name}"
+   133→                >
+   134→                  <span 
+   135→                    class="theme-preview" 
+   136→                    style="
+   137→                      background-color: ${theme.preview.bg}; 
+   138→                      border-color: ${theme.preview.border};
+   139→                      ${theme.dark ? 'color: #f1f5f9;' : ''}
+   140→                    "
+   141→                  >
+   142→                    <span class="theme-preview-accent" style="background-color: ${theme.preview.accent}"></span>
+   143→                  </span>
+   144→                  <span class="theme-name">${theme.name}</span>
+   145→                  ${activeThemeId === theme.id ? '<span class="theme-check">✓</span>' : ''}
+   146→                </button>
+   147→              `).join('')}
+   148→            </div>
+   149→          </section>
+   150→          
+   151→          <!-- Font Size Section -->
+   152→          <section class="settings-section">
+   153→            <h3 class="settings-section-title">Font Size</h3>
+   154→            <p class="settings-section-description">Adjust text size throughout the interface</p>
+   155→            
+   156→            <div class="font-scale-options" role="radiogroup" aria-label="Font size selection">
+   157→              ${fontScales.map(scale => `
+   158→                <button 
+   159→                  class="font-scale-option ${Math.abs(currentSettings.fontScale - scale.value) < 0.01 ? 'active' : ''}"
+   160→                  data-font-scale="${scale.value}"
+   161→                  role="radio"
+   162→                  aria-checked="${Math.abs(currentSettings.fontScale - scale.value) < 0.01}"
+   163→                  title="${scale.label} - ${scale.description}"
+   164→                >
+   165→                  <span class="font-scale-label">${scale.label}</span>
+   166→                  <span class="font-scale-desc">${scale.description}</span>
+   167→                </button>
+   168→              `).join('')}
+   169→            </div>
+   170→            
+   171→            <div class="font-scale-preview">
+   172→              <p style="font-size: calc(1rem * ${currentSettings.fontScale})">Preview text at current size</p>
+   173→            </div>
+   174→          </section>
+   175→          
+   176→          <!-- Toggles Section -->
+   177→          <section class="settings-section">
+   178→            <h3 class="settings-section-title">Preferences</h3>
+   179→            
+   180→            <div class="settings-toggles">
+   181→              <label class="toggle-item">
+   182→                <div class="toggle-info">
+   183→                  <span class="toggle-label">Auto ZIP Backup</span>
+   184→                  <span class="toggle-description">Automatically create ZIP archives when saving versions</span>
+   185→                </div>
+   186→                <input type="checkbox" class="toggle-input" id="setting-zip-backup" ${currentSettings.autoCreateZipBackup ? 'checked' : ''} />
+   187→                <span class="toggle-switch"></span>
+   188→              </label>
+   189→              
+   190→              <label class="toggle-item">
+   191→                <div class="toggle-info">
+   192→                  <span class="toggle-label">Notifications</span>
+   193→                  <span class="toggle-description">Show desktop notifications for AI responses</span>
+   194→                </div>
+   195→                <input type="checkbox" class="toggle-input" id="setting-notifications" ${currentSettings.showNotifications ? 'checked' : ''} />
+   196→                <span class="toggle-switch"></span>
+   197→              </label>
+   198→              
+   199→              <label class="toggle-item">
+   200→                <div class="toggle-info">
+   201→                  <span class="toggle-label">Auto-checkpoint</span>
+   202→                  <span class="toggle-description">Create automatic checkpoints after each AI response</span>
+   203→                </div>
+   204→                <input type="checkbox" class="toggle-input" id="setting-auto-checkpoint" ${currentSettings.autoCheckpoint ? 'checked' : ''} />
+   205→                <span class="toggle-switch"></span>
+   206→              </label>
+   207→              
+   208→              <label class="toggle-item">
+   209→                <div class="toggle-info">
+   210→                  <span class="toggle-label">Sound effects</span>
+   211→                  <span class="toggle-description">Play subtle audio cues for saves, errors, and AI responses</span>
+   212→                </div>
+   213→                <input type="checkbox" class="toggle-input" id="setting-sound-effects" ${currentSettings.soundEffects ? 'checked' : ''} />
+   214→                <span class="toggle-switch"></span>
+   215→              </label>
+   216→            </div>
+   217→          </section>
+   218→          
+   219→          <!-- Editor Section (ported from v1 IDE) -->
+   220→          <section class="settings-section">
+   221→            <h3 class="settings-section-title">Editor</h3>
+   222→            <p class="settings-section-description">Configure code editor behavior</p>
+   223→            
+   224→            <div class="settings-toggles">
+   225→              <label class="toggle-item">
+   226→                <div class="toggle-info">
+   227→                  <span class="toggle-label">Word Wrap</span>
+   228→                  <span class="toggle-description">Soft-wrap long lines in the editor instead of horizontal scrolling</span>
+   229→                </div>
+   230→                <input type="checkbox" class="toggle-input" id="setting-word-wrap" ${currentSettings.wordWrap ? 'checked' : ''} />
+   231→                <span class="toggle-switch"></span>
+   232→              </label>
+   233→              
+   234→              <label class="toggle-item">
+   235→                <div class="toggle-info">
+   236→                  <span class="toggle-label">Line Numbers</span>
+   237→                  <span class="toggle-description">Show a line-number gutter alongside the editor</span>
+   238→                </div>
+   239→                <input type="checkbox" class="toggle-input" id="setting-line-numbers" ${currentSettings.lineNumbers ? 'checked' : ''} />
+   240→                <span class="toggle-switch"></span>
+   241→              </label>
+   242→              
+   243→              <label class="toggle-item">
+   244→                <div class="toggle-info">
+   245→                  <span class="toggle-label">Auto-save</span>
+   246→                  <span class="toggle-description">Automatically persist file changes after a brief idle period</span>
+   247→                </div>
+   248→                <input type="checkbox" class="toggle-input" id="setting-auto-save" ${currentSettings.autoSave ? 'checked' : ''} />
+   249→                <span class="toggle-switch"></span>
+   250→              </label>
+   251→            </div>
+   252→          </section>
+   253→          
+   254→          <!-- AI / System Prompt Section -->
+   255→          <section class="settings-section">
+   256→            <h3 class="settings-section-title">
+   257→              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -2px; margin-right: 6px;">
+   258→                <path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M12 2a10 10 0 0 1 10 10"/><circle cx="12" cy="12" r="4"/><path d="M12 8v4"/>
+   259→              </svg>
+   260→              System Prompt
+   261→            </h3>
+   262→            <p class="settings-section-description">Set the master system prompt that defines AI behavior for all sessions. This acts as the base instruction layer.</p>
+   263→            
+   264→            <div class="system-prompt-editor">
+   265→              <div class="system-prompt-header">
+   266→                <label for="system-prompt-textarea" class="system-prompt-label">Global Master Prompt</label>
+   267→                <div class="system-prompt-actions">
+   268→                  <button type="button" class="btn btn-xs btn-outline reset-prompt-btn" title="Reset to default prompt">
+   269→                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   270→                      <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+   271→                    </svg>
+   272→                    Reset
+   273→                  </button>
+   274→                  <button type="button" class="btn btn-xs btn-outline expand-prompt-btn" title="Expand to full screen">
+   275→                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   276→                      <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
+   277→                    </svg>
+   278→                    Expand
+   279→                  </button>
+   280→                </div>
+   281→              </div>
+   282→              <textarea 
+   283→                id="system-prompt-textarea" 
+   284→                class="system-prompt-textarea"
+   285→                placeholder="Enter your system prompt here...\n\nThis prompt will be prepended to all AI conversations as the system instruction.\nExample: 'You are an expert coding assistant...'"
+   286→                rows="8"
+   287→                spellcheck="true"
+   288→              >${escapeHtml(currentSettings.systemPrompt || '')}</textarea>
+   289→              <div class="system-prompt-footer">
+   290→                <span class="prompt-char-count"><span id="prompt-char-count">0</span> characters</span>
+   291→                <span class="prompt-hint">Variables: {{project}}, {{file}}, {{language}}</span>
+   292→              </div>
+   293→            </div>
+   294→            
+   295→            <div class="system-prompt-presets">
+   296→              <span class="presets-label">Quick Templates:</span>
+   297→              <div class="presets-list">
+   298→                <button type="button" class="preset-btn" data-prompt="coding-assistant">
+   299→                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+   300→                  Coding Assistant
+   301→                </button>
+   302→                <button type="button" class="preset-btn" data-prompt="code-reviewer">
+   303→                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+   304→                  Code Reviewer
+   305→                </button>
+   306→                <button type="button" class="preset-btn" data-prompt="documentation">
+   307→                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+   308→                  Documentation
+   309→                </button>
+   310→                <button type="button" class="preset-btn" data-prompt="debugger">
+   311→                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+   312→                  Debugger
+   313→                </button>
+   314→              </div>
+   315→            </div>
+   316→          </section>
+   317→          
+   318→          <!-- Keyboard Shortcuts Reference -->
+   319→          <section class="settings-section">
+   320→            <h3 class="settings-section-title">Keyboard Shortcuts</h3>
+   321→            <div class="shortcuts-list">
+   322→              <div class="shortcut-item">
+   323→                <kbd>Ctrl</kbd> + <kbd>S</kbd>
+   324→                <span>Save file</span>
+   325→              </div>
+   326→              <div class="shortcut-item">
+   327→                <kbd>Ctrl</kbd> + <kbd>F</kbd>
+   328→                <span>Find in file</span>
+   329→              </div>
+   330→              <div class="shortcut-item">
+   331→                <kbd>Ctrl</kbd> + <kbd>N</kbd>
+   332→                <span>New file</span>
+   333→              </div>
+   334→              <div class="shortcut-item">
+   335→                <kbd>Ctrl</kbd> + <kbd>/</kbd>
+   336→                <span>Cycle theme</span>
+   337→              </div>
+   338→              <div class="shortcut-item">
+   339→                <kbd>Escape</kbd>
+   340→                <span>Close dialog/panel</span>
+   341→              </div>
+   342→            </div>
+   343→          </section>
+   344→        </div>
+   345→        
+   346→        <div class="modal-footer">
+   347→          <button class="btn btn-outline reset-settings-btn">Reset to Defaults</button>
+   348→          <button class="btn btn-primary save-settings-btn">
+   349→            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   350→              <polyline points="20 6 9 17 4 12"/>
+   351→            </svg>
+   352→            Save Settings
+   353→          </button>
+   354→        </div>
+   355→      </div>
+   356→    `;
+   357→    
+   358→    // Wire up event listeners
+   359→    wireUpModalEvents(modal);
+   360→    
+   361→    document.body.appendChild(modal);
+   362→    
+   363→    // Focus trap management
+   364→    modal.querySelector('.settings-close-btn').focus();
+   365→  }
+   366→  
+   367→  /**
+   368→   * Wire up all modal event listeners
+   369→   */
+   370→  function wireUpModalEvents(modalEl) {
+   371→    // Close button
+   372→    modalEl.querySelector('.settings-close-btn').addEventListener('click', close);
+   373→    
+   374→    // Click outside to close
+   375→    modalEl.addEventListener('click', (e) => {
+   376→      if (e.target === modalEl) close();
+   377→    });
+   378→    
+   379→    // Escape key
+   380→    modalEl.addEventListener('keydown', (e) => {
+   381→      if (e.key === 'Escape') close();
+   382→    });
+   383→    
+   384→    // Theme selection
+   385→    modalEl.querySelectorAll('.theme-option').forEach(btn => {
+   386→      btn.addEventListener('click', () => {
+   387→        selectTheme(btn.dataset.themeId);
+   388→      });
+   389→    });
+   390→    
+   391→    // Font scale selection
+   392→    modalEl.querySelectorAll('.font-scale-option').forEach(btn => {
+   393→      btn.addEventListener('click', () => {
+   394→        setFontScale(parseFloat(btn.dataset.fontScale));
+   395→      });
+   396→    });
+   397→    
+   398→    // Toggle switches
+   399→    modalEl.querySelectorAll('.toggle-input').forEach(toggle => {
+   400→      toggle.addEventListener('change', () => {
+   401→        updateToggleSetting(toggle.id, toggle.checked);
+   402→      });
+   403→    });
+   404→    
+   405→    // System prompt textarea
+   406→    const promptTextarea = modalEl.querySelector('#system-prompt-textarea');
+   407→    if (promptTextarea) {
+   408→      const charCount = modalEl.querySelector('#prompt-char-count');
+   409→      
+   410→      // Update character count on input
+   411→      promptTextarea.addEventListener('input', () => {
+   412→        if (charCount) charCount.textContent = promptTextarea.value.length;
+   413→        modal.dataset.systemPrompt = promptTextarea.value;
+   414→      });
+   415→      
+   416→      // Initialize character count
+   417→      if (charCount) charCount.textContent = promptTextarea.value.length;
+   418→      
+   419→      // Reset button
+   420→      modalEl.querySelector('.reset-prompt-btn')?.addEventListener('click', () => {
+   421→        promptTextarea.value = getDefaultSystemPrompt();
+   422→        if (charCount) charCount.textContent = promptTextarea.value.length;
+   423→        modal.dataset.systemPrompt = promptTextarea.value;
+   424→        if (IDEUtils) IDEUtils.showToast('System prompt reset to default', 'info');
+   425→      });
+   426→      
+   427→      // Expand button
+   428→      modalEl.querySelector('.expand-prompt-btn')?.addEventListener('click', () => {
+   429→        openExpandedPromptEditor(promptTextarea.value, (newValue) => {
+   430→          promptTextarea.value = newValue;
+   431→          if (charCount) charCount.textContent = promptTextarea.value.length;
+   432→          modal.dataset.systemPrompt = newValue;
+   433→        });
+   434→      });
+   435→      
+   436→      // Preset buttons
+   437→      modalEl.querySelectorAll('.preset-btn').forEach(btn => {
+   438→        btn.addEventListener('click', () => {
+   439→          const preset = getPresetPrompt(btn.dataset.prompt);
+   440→          if (preset) {
+   441→            promptTextarea.value = preset;
+   442→            if (charCount) charCount.textContent = promptTextarea.value.length;
+   443→            modal.dataset.systemPrompt = preset;
+   444→            if (IDEUtils) IDEUtils.showToast(`Applied "${btn.textContent.trim()}" template`, 'success');
+   445→          }
+   446→        });
+   447→      });
+   448→    }
+   449→    
+   450→    // Save button
+   451→    modalEl.querySelector('.save-settings-btn').addEventListener('click', () => {
+   452→      saveSettings();
+   453→      close();
+   454→      if (IDEUtils) IDEUtils.showToast('Settings saved', 'success');
+   455→    });
+   456→    
+   457→    // Reset button
+   458→    modalEl.querySelector('.reset-settings-btn').addEventListener('click', () => {
+   459→      if (confirm('Reset all settings to defaults?')) {
+   460→        resetToDefaults();
+   461→        renderModal(); // Re-render with defaults
+   462→        if (IDEUtils) IDEUtils.showToast('Settings reset to defaults', 'info');
+   463→      }
+   464→    });
+   465→  }
+   466→
+   467→  // ============================================
+   468→  // Settings Operations
+   469→  // ============================================
+   470→  
+   471→  /**
+   472→   * Get current settings from state or defaults
+   473→   */
+   474→  function getSettings() {
+   475→    return {
+   476→      theme: IDEState?.get('settings')?.theme || 'default',
+   477→      fontScale: IDEState?.get('settings')?.fontScale || 1,
+   478→      autoCreateZipBackup: IDEState?.get('settings')?.autoCreateZipBackup ?? true,
+   479→      showNotifications: IDEState?.get('settings')?.showNotifications ?? true,
+   480→      autoCheckpoint: IDEState?.get('settings')?.autoCheckpoint ?? true,
+   481→      // Editor preferences (ported from v1 IDE)
+   482→      wordWrap: IDEState?.get('settings')?.wordWrap ?? true,
+   483→      lineNumbers: IDEState?.get('settings')?.lineNumbers ?? true,
+   484→      autoSave: IDEState?.get('settings')?.autoSave ?? false,
+   485→      soundEffects: IDEState?.get('settings')?.soundEffects ?? false,
+   486→      systemPrompt: IDEState?.get('settings')?.systemPrompt || ''
+   487→    };
+   488→  }
+   489→  
+   490→  /**
+   491→   * Select a theme
+   492→   */
+   493→  function selectTheme(themeId) {
+   494→    // Update UI
+   495→    modal.querySelectorAll('.theme-option').forEach(btn => {
+   496→      const isActive = btn.dataset.themeId === themeId;
+   497→      btn.classList.toggle('active', isActive);
+   498→      btn.setAttribute('aria-checked', isActive);
+   499→      
+   500→      // Update checkmark
+   501→      let check = btn.querySelector('.theme-check');
+   502→      if (isActive && !check) {
+   503→        check = document.createElement('span');
+   504→        check.className = 'theme-check';
+   505→        check.textContent = '✓';
+   506→        btn.appendChild(check);
+   507→      } else if (!isActive && check) {
+   508→        check.remove();
+   509→      }
+   510→    });
+   511→    
+   512→    // Apply theme through the central IDEThemes module so that:
+   513→    //   - the data-theme attribute is set
+   514→    //   - the theme-X CSS class is added (used by per-theme overrides in styles.css)
+   515→    //   - the meta theme-color is updated for mobile browsers
+   516→    //   - the choice is persisted to IDEState
+   517→    //   - the 'themechange' event fires for other components
+   518→    if (window.IDEThemes) {
+   519→      IDEThemes.applyTheme(themeId);
+   520→    } else {
+   521→      // Fallback: direct attribute only (legacy path)
+   522→      document.documentElement.setAttribute('data-theme', themeId);
+   523→    }
+   524→    
+   525→    // Store pending change
+   526→    modal.dataset.pendingTheme = themeId;
+   527→  }
+   528→  
+   529→  /**
+   530→   * Set font scale
+   531→   */
+   532→  function setFontScale(scale) {
+   533→    // Update UI
+   534→    modal.querySelectorAll('.font-scale-option').forEach(btn => {
+   535→      const isActive = Math.abs(parseFloat(btn.dataset.fontScale) - scale) < 0.01;
+   536→      btn.classList.toggle('active', isActive);
+   537→      btn.setAttribute('aria-checked', isActive);
+   538→    });
+   539→    
+   540→    // Apply immediately for preview
+   541→    document.documentElement.style.setProperty('--font-scale', scale);
+   542→    
+   543→    // Update preview text
+   544→    const preview = modal.querySelector('.font-scale-preview p');
+   545→    if (preview) {
+   546→      preview.style.fontSize = `calc(1rem * ${scale})`;
+   547→    }
+   548→    
+   549→    // Store pending change
+   550→    modal.dataset.pendingFontScale = scale;
+   551→  }
+   552→  
+   553→  /**
+   554→   * Update toggle setting
+   555→   */
+   556→  function updateToggleSetting(settingId, value) {
+   557→    // Just store it - will be saved on "Save Settings"
+   558→    modal.dataset[settingId] = value;
+   559→  }
+   560→  
+   561→  /**
+   562→   * Save all settings
+   563→   */
+   564→  function saveSettings() {
+   565→    const prev = getSettings();
+   566→    const settings = {
+   567→      theme: modal?.dataset.pendingTheme || prev.theme,
+   568→      fontScale: parseFloat(modal?.dataset.pendingFontScale || prev.fontScale),
+   569→      autoCreateZipBackup: modal?.dataset['setting-zip-backup'] === null ? prev.autoCreateZipBackup
+   570→                          : modal?.dataset['setting-zip-backup'] === 'true',
+   571→      showNotifications: modal?.dataset['setting-notifications'] === null ? prev.showNotifications
+   572→                          : modal?.dataset['setting-notifications'] === 'true',
+   573→      autoCheckpoint: modal?.dataset['setting-auto-checkpoint'] === null ? prev.autoCheckpoint
+   574→                          : modal?.dataset['setting-auto-checkpoint'] === 'true',
+   575→      wordWrap: modal?.dataset['setting-word-wrap'] === null ? prev.wordWrap
+   576→                  : modal?.dataset['setting-word-wrap'] === 'true',
+   577→      lineNumbers: modal?.dataset['setting-line-numbers'] === null ? prev.lineNumbers
+   578→                    : modal?.dataset['setting-line-numbers'] === 'true',
+   579→      autoSave: modal?.dataset['setting-auto-save'] === null ? prev.autoSave
+   580→                  : modal?.dataset['setting-auto-save'] === 'true',
+   581→      soundEffects: modal?.dataset['setting-sound-effects'] === null ? prev.soundEffects
+   582→                      : modal?.dataset['setting-sound-effects'] === 'true',
+   583→      systemPrompt: modal?.dataset.systemPrompt !== undefined 
+   584→                    ? modal.dataset.systemPrompt 
+   585→                    : prev.systemPrompt || ''
+   586→    };
+   587→    
+   588→    // Persist to storage
+   589→    try {
+   590→      localStorage.setItem('ide-settings', JSON.stringify(settings));
+   591→    } catch (e) {
+   592→      console.error('Failed to save settings:', e);
+   593→    }
+   594→    
+   595→    // Update state
+   596→    if (window.IDEState) {
+   597→      IDEState.set({ settings });
+   598→    }
+   599→    
+   600→    // Apply settings
+   601→    applySettings(settings);
+   602→    
+   603→    // Notify other components that editor-affecting settings may have changed
+   604→    document.dispatchEvent(new CustomEvent('ide:settings-applied', { detail: { settings, prev } }));
+   605→  }
+   606→  
+   607→  /**
+   608→   * Load settings from storage
+   609→   */
+   610→  function loadSettings() {
+   611→    try {
+   612→      const stored = localStorage.getItem('ide-settings');
+   613→      if (stored) {
+   614→        const settings = JSON.parse(stored);
+   615→        applySettings(settings);
+   616→        
+   617→        if (window.IDEState) {
+   618→          IDEState.set({ settings });
+   619→        }
+   620→      }
+   621→    } catch (e) {
+   622→      console.error('Failed to load settings:', e);
+   623→    }
+   624→  }
+   625→  
+   626→  /**
+   627→   * Reset to default settings
+   628→   */
+   629→  function resetToDefaults() {
+   630→    const defaults = {
+   631→      theme: 'default',
+   632→      fontScale: 1,
+   633→      autoCreateZipBackup: false,
+   634→      showNotifications: true,
+   635→      autoCheckpoint: true,
+   636→      wordWrap: true,
+   637→      lineNumbers: true,
+   638→      autoSave: false,
+   639→      soundEffects: false,
+   640→      systemPrompt: ''
+   641→    };
+   642→    
+   643→    try {
+   644→      localStorage.setItem('ide-settings', JSON.stringify(defaults));
+   645→    } catch (e) {
+   646→      console.error('Failed to reset settings:', e);
+   647→    }
+   648→    
+   649→    applySettings(defaults);
+   650→    
+   651→    if (window.IDEState) {
+   652→      IDEState.set({ settings: defaults });
+   653→    }
+   654→    
+   655→    document.dispatchEvent(new CustomEvent('ide:settings-applied', { detail: { settings: defaults, prev: {} } }));
+   656→  }
+   657→  
+   658→  /**
+   659→   * Apply settings to the DOM
+   660→   */
+   661→  function applySettings(settings) {
+   662→    // Theme
+   663→    if (settings.theme) {
+   664→      document.documentElement.setAttribute('data-theme', settings.theme);
+   665→    }
+   666→    
+   667→    // Font scale
+   668→    if (settings.fontScale) {
+   669→      document.documentElement.style.setProperty('--font-scale', settings.fontScale);
+   670→    }
+   671→  }
+   672→  
+   673→  /**
+   674→   * Escape HTML entities for safe insertion into DOM
+   675→   */
+   676→  function escapeHtml(str) {
+   677→    const div = document.createElement('div');
+   678→    div.textContent = str;
+   679→    return div.innerHTML;
+   680→  }
+   681→  
+   682→  /**
+   683→   * Get default system prompt
+   684→   */
+   685→  function getDefaultSystemPrompt() {
+   686→    return `You are a helpful AI coding assistant integrated into an IDE environment.
+   687→
+   688→Your capabilities include:
+   689→- Writing and editing code across multiple programming languages
+   690→- Explaining complex code concepts clearly
+   691→- Debugging issues and suggesting fixes
+   692→- Refactoring code for better performance and readability
+   693→- Generating documentation and comments
+   694→- Following best practices and design patterns
+   695→
+   696→Guidelines:
+   697→- Be concise but thorough in your explanations
+   698→- When providing code, include brief comments for complex logic
+   699→- Ask clarifying questions when requirements are ambiguous
+   700→- Suggest improvements proactively when you notice potential issues
+   701→- Format code responses in proper markdown code blocks`;
+   702→  }
+   703→  
+   704→  /**
+   705→   * Get preset prompt by name
+   706→   */
+   707→  function getPresetPrompt(presetName) {
+   708→    const presets = {
+   709→      'coding-assistant': `You are an expert coding assistant specializing in modern web development.
+   710→
+   711→Core Expertise:
+   712→- JavaScript/TypeScript (ES6+, Node.js, React, Vue, Angular)
+   713→- Python (Django, Flask, FastAPI, data science)
+   714→- HTML/CSS (responsive design, CSS Grid, Flexbox, Tailwind)
+   715→- SQL & NoSQL databases
+   716→- Git workflows and DevOps practices
+   717→
+   718→Behavior:
+   719→- Write clean, production-ready code with proper error handling
+   720→- Include JSDoc/TSDoc for functions and classes
+   721→- Suggest optimizations for performance and maintainability
+   722→- Follow language-specific conventions and idioms
+   723→- When unsure about requirements, ask before implementing`,
+   724→      
+   725→      'code-reviewer': `You are a senior code reviewer with 15+ years of experience.
+   726→
+   727→Review Focus Areas:
+   728→- Code correctness and potential bugs
+   729→- Security vulnerabilities (OWASP top 10)
+   730→- Performance bottlenecks and optimization opportunities
+   731→- Code organization and architecture patterns
+   732→- Naming conventions and code readability
+   733→- Error handling edge cases
+   734→
+   735→Output Format:
+   736→1. Summary of findings (critical/warning/info)
+   737→2. Detailed issues with line references
+   738→3. Specific code suggestions with before/after examples
+   739→4. Overall assessment and recommendations
+   740→
+   741→Be thorough but constructive. Acknowledge good patterns alongside areas for improvement.`,
+   742→      
+   743→      'documentation': `You are a technical writer specializing in API and code documentation.
+   744→
+   745→Documentation Standards:
+   746→- Write clear, concise prose suitable for developers
+   747→- Include practical examples for all APIs and functions
+   748→- Use consistent formatting and structure
+   749→- Provide both quick-start guides and detailed reference
+   750→- Document edge cases and error conditions
+   751→
+   752→Output Types:
+   753→- JSDoc/TSDoc comments for code
+   754→- README files with installation/usage sections
+   755→- API reference documentation
+   756→- Architecture decision records (ADRs)
+   757→- Change logs and migration guides
+   758→
+   759→Focus on accuracy and completeness. If behavior is unclear from code alone, note it as needing verification.`,
+   760→      
+   761→      'debugger': `You are an expert debugging assistant with deep knowledge of common failure patterns.
+   762→
+   763→Debugging Approach:
+   764→1. Analyze symptoms and reproduce steps
+   765→2. Identify potential root causes (ranked by likelihood)
+   766→3. Suggest diagnostic logging or breakpoints
+   767→4. Propose targeted fixes with explanations
+   768→5. Recommend prevention strategies
+   769→
+   770→Common Issue Categories:
+   771→- Race conditions and async timing issues
+   772→- Memory leaks and resource management
+   773→- Null/undefined reference errors
+   774→- Type coercion surprises
+   775→- Network timeout and error handling
+   776→- Environment-specific behaviors
+   777→
+   778→When analyzing bugs:
+   779→- Consider the full call stack and execution context
+   780→- Check for related code that might be affected
+   781→- Suggest unit tests to prevent regression
+   782→- Explain WHY the bug occurs, not just HOW to fix`
+   783→    };
+   784→    return presets[presetName] || null;
+   785→  }
+   786→  
+   787→  /**
+   788→   * Open expanded prompt editor modal
+   789→   */
+   790→  function openExpandedPromptEditor(initialValue, onSave) {
+   791→    const expandedModal = document.createElement('div');
+   792→    expandedModal.className = 'modal-overlay';
+   793→    expandedModal.id = 'expanded-prompt-modal';
+   794→    
+   795→    expandedModal.innerHTML = `
+   796→      <div class="modal modal-lg expanded-prompt-modal">
+   797→        <div class="modal-header">
+   798→          <h2 class="modal-title">System Prompt Editor</h2>
+   799→          <button class="icon-btn expanded-close-btn" aria-label="Close editor">
+   800→            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   801→              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+   802→            </svg>
+   803→          </button>
+   804→        </div>
+   805→        <div class="modal-body">
+   806→          <textarea id="expanded-prompt-textarea" class="expanded-prompt-textarea" rows="20" spellcheck="true">${escapeHtml(initialValue)}</textarea>
+   807→        </div>
+   808→        <div class="modal-footer">
+   809→          <span class="expanded-char-count"><span id="expanded-char-count">${initialValue.length}</span> characters</span>
+   810→          <div>
+   811→            <button class="btn btn-outline expanded-cancel-btn">Cancel</button>
+   812→            <button class="btn btn-primary expanded-save-btn">
+   813→              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+   814→                <polyline points="20 6 9 17 4 12"/>
+   815→              </svg>
+   816→              Apply Changes
+   817→            </button>
+   818→          </div>
+   819→        </div>
+   820→      </div>
+   821→    `;
+   822→    
+   823→    document.body.appendChild(expandedModal);
+   824→    
+   825→    const textarea = expandedModal.querySelector('#expanded-prompt-textarea');
+   826→    const charCount = expandedModal.querySelector('#expanded-char-count');
+   827→    
+   828→    textarea.addEventListener('input', () => {
+   829→      charCount.textContent = textarea.value.length;
+   830→    });
+   831→    
+   832→    textarea.focus();
+   833→    
+   834→    // Close button
+   835→    expandedModal.querySelector('.expanded-close-btn').addEventListener('click', () => {
+   836→      expandedModal.remove();
+   837→    });
+   838→    
+   839→    // Cancel button
+   840→    expandedModal.querySelector('.expanded-cancel-btn').addEventListener('click', () => {
+   841→      expandedModal.remove();
+   842→    });
+   843→    
+   844→    // Save button
+   845→    expandedModal.querySelector('.expanded-save-btn').addEventListener('click', () => {
+   846→      onSave(textarea.value);
+   847→      expandedModal.remove();
+   848→      if (IDEUtils) IDEUtils.showToast('System prompt updated', 'success');
+   849→    });
+   850→    
+   851→    // Click outside to close
+   852→    expandedModal.addEventListener('click', (e) => {
+   853→      if (e.target === expandedModal) expandedModal.remove();
+   854→    });
+   855→    
+   856→    // Escape key
+   857→    expandedModal.addEventListener('keydown', (e) => {
+   858→      if (e.key === 'Escape') expandedModal.remove();
+   859→    });
+   860→  }
+   861→
+   862→  /**
+   863→   * Sync UI with current settings
+   864→   */
+   865→  function syncUIWithSettings(settings) {
+   866→    // This is called when state changes externally
+   867→    applySettings(settings);
+   868→  }
+   869→
+   870→  // ============================================
+   871→  // Public API
+   872→  // ============================================
+   873→  
+   874→  return {
+   875→    init,
+   876→    open,
+   877→    close,
+   878→    getSettings,
+   879→    saveSettings,
+   880→    resetToDefaults,
+   881→    
+   882→    // Expose for external use
+   883→    themes,
+   884→    fontScales
+   885→  };
+   886→})();
+   887→
+   888→// Export for use in other modules
+   889→window.SettingsPanelComponent = SettingsPanelComponent;
+   890→

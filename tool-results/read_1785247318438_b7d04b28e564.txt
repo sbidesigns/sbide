@@ -1,0 +1,1651 @@
+     1→/**
+     2→ * SBIDE - Main Application Bootstrap
+     3→ * Initializes all components and wires up cross-component communication
+     4→ */
+     5→
+     6→(function() {
+     7→  'use strict';
+     8→  
+     9→  // ============================================
+    10→  // App State
+    11→  // ============================================
+    12→  
+    13→  const AppState = {
+    14→    initialized: false,
+    15→    initializing: false,
+    16→    error: null,
+    17→    
+    18→    // Component references (set during init)
+    19→    sidebar: null,
+    20→    fileTree: null,
+    21→    codeEditor: null,
+    22→    chatWindow: null
+    23→  };
+    24→
+    25→  // ============================================
+    26→  // Initialization
+    27→  // ============================================
+    28→  
+    29→  /**
+    30→   * Main initialization function - called when DOM is ready
+    31→   */
+    32→  async function initialize() {
+    33→    if (AppState.initialized || AppState.initializing) return;
+    34→    AppState.initializing = true;
+    35→    
+    36→    console.log('🚀 Initializing SBIDE...');
+    37→    
+    38→    try {
+    39→      // Show loading state or hide error
+    40→      const errorEl = document.getElementById('init-error-message');
+    41→      if (errorEl) errorEl.classList.add('hidden');
+    42→      
+    43→      // Step 1: Initialize storage (IndexedDB)
+    44→      console.log('📦 Initializing storage...');
+    45→      await IDEStorage.init();
+    46→      /* storage fallback warning — non-blocking */
+    47→      if (window.IDEStorage && IDEStorage.isFallbackMode && IDEStorage.isFallbackMode()) {
+    48→        console.warn('⚠️ Storage running in fallback (in-memory) mode — data will not persist across reloads.');
+    49→        if (window.IDEUtils && IDEUtils.showToast) {
+    50→          IDEUtils.showToast('Storage unavailable — running in temporary mode. Data won\'t persist.', 'warning', 6000);
+    51→        }
+    52→      }
+    53→      console.log('✅ Storage initialized');
+    54→      
+    55→      // Step 2: Initialize state from persistence (MUST be before themes!)
+    56→      console.log('💾 Hydrating state...');
+    57→      const savedState = IDEState.getState();
+    58→      console.log('✅ State hydrated', { 
+    59→        hasProject: !!savedState.currentProject, 
+    60→        theme: savedState.settings?.theme 
+    61→      });
+    62→      
+    63→      // Step 3: Initialize themes (AFTER state is loaded)
+    64→      console.log('🎨 Initializing themes...');
+    65→      if (window.IDEThemes) {
+    66→        IDEThemes.init();
+    67→      }
+    68→      console.log('✅ Themes initialized');
+    69→      
+    70→      // Step 4: Initialize components in order
+    71→      await initializeComponents();
+    72→      
+    73→      // Step 5: Setup global event handlers
+    74→      setupGlobalHandlers();
+    75→      
+    76→      // Step 6: Load initial data
+    77→      await loadInitialData();
+    78→      
+    79→      // Mark as initialized
+    80→      AppState.initialized = true;
+    81→      AppState.initializing = false;
+    82→      
+    83→      console.log('✨ SBIDE ready!');
+    84→      
+    85→      // Dispatch ready event
+    86→      window.dispatchEvent(new CustomEvent('ide-ready'));
+    87→      
+    88→    } catch (error) {
+    89→      console.error('❌ Initialization failed:', error);
+    90→      AppState.error = error;
+    91→      AppState.initializing = false;
+    92→      
+    93→      showInitError(error.message || 'Failed to initialize application');
+    94→    }
+    95→  }
+    96→
+    97→  /**
+    98→   * Initialize all UI components
+    99→   */
+   100→  async function initializeComponents() {
+   101→    // Get DOM references (using ACTUAL element IDs from HTML)
+   102→    const appContainer = document.getElementById('app');
+   103→    const sidebarContainer = document.getElementById('sidebar');
+   104→    const editorContainer = document.getElementById('editor-panel');
+   105→    const chatContainer = document.getElementById('chat-area');
+   106→    
+   107→    if (!appContainer) {
+   108→      throw new Error('App container not found');
+   109→    }
+   110→    
+   111→    // Initialize Sidebar
+   112→    console.log('📂 Initializing sidebar...');
+   113→    if (sidebarContainer && window.SidebarComponent) {
+   114→      AppState.sidebar = SidebarComponent;
+   115→      SidebarComponent.init(sidebarContainer, {
+   116→        onFileSelect: handleFileSelectFromSidebar,
+   117→        onProjectChange: handleProjectChange
+   118→      });
+   119→    }
+   120→    console.log('✅ Sidebar initialized');
+   121→    
+   122→    // Initialize Code Editor
+   123→    console.log('📝 Initializing code editor...');
+   124→    if (editorContainer && window.CodeEditorComponent) {
+   125→      AppState.codeEditor = CodeEditorComponent;
+   126→      CodeEditorComponent.init(editorContainer, {
+   127→        onContentChange: handleEditorContentChange,
+   128→        onFileSave: handleFileSave
+   129→      });
+   130→    }
+   131→    console.log('✅ Code editor initialized');
+   132→    
+   133→    // Initialize Chat Window
+   134→    console.log('💬 Initializing chat window...');
+   135→    if (chatContainer && window.ChatWindowComponent) {
+   136→      AppState.chatWindow = ChatWindowComponent;
+   137→      ChatWindowComponent.init(chatContainer, {
+   138→        onSendMessage: handleSendMessage,
+   139→        onToolAction: handleToolAction
+   140→      });
+   141→    }
+   142→    console.log('✅ Chat window initialized');
+   143→    
+   144→    // Store file tree reference for easy access
+   145→    if (window.FileTreeComponent) {
+   146→      AppState.fileTree = FileTreeComponent;
+   147→    }
+   148→    
+   149→    // Initialize LLM Manager
+   150→    console.log('🤖 Initializing LLM Manager...');
+   151→    if (window.LLMManagerComponent) {
+   152→      AppState.llmManager = LLMManagerComponent;
+   153→      LLMManagerComponent.init({
+   154→        onProviderChange: handleProviderChange
+   155→      });
+   156→    }
+   157→    console.log('✅ LLM Manager initialized');
+   158→  }
+   159→
+   160→  /**
+   161→   * Setup global event handlers using CORRECT element IDs from HTML
+   162→   */
+   163→  function setupGlobalHandlers() {
+   164→    // Header buttons - using actual IDs from HTML
+   165→    setupHeaderButtons();
+   166→    
+   167→    // Keyboard shortcuts
+   168→    setupKeyboardShortcuts();
+   169→    
+   170→    // Window events
+   171→    setupWindowEvents();
+   172→    
+   173→    // Context menu handler
+   174→    setupContextMenuHandler();
+   175→  }
+   176→
+   177→  /**
+   178→   * Setup header action buttons with CORRECT IDs
+   179→   */
+   180→  function setupHeaderButtons() {
+   181→    // Settings button (id="settings-btn") - use SidebarComponent
+   182→    const settingsBtn = document.getElementById('settings-btn');
+   183→    if (settingsBtn) {
+   184→      settingsBtn.addEventListener('click', () => {
+   185→        // Use SidebarComponent if available, otherwise fallback
+   186→        if (window.SidebarComponent) {
+   187→          SidebarComponent.toggleSettings(true);
+   188→        } else {
+   189→          const settingsModal = document.getElementById('settings-modal');
+   190→          if (settingsModal) {
+   191→            settingsModal.classList.remove('hidden');
+   192→          }
+   193→        }
+   194→      });
+   195→    }
+   196→    
+   197→    // Theme cycle button (id="theme-cycle-btn")
+   198→    const themeBtn = document.getElementById('theme-cycle-btn');
+   199→    if (themeBtn && window.IDEThemes) {
+   200→      themeBtn.addEventListener('click', () => {
+   201→        const current = IDEThemes.getCurrentTheme();
+   202→        const themes = Object.keys(IDEThemes.THEMES);
+   203→        const currentIndex = themes.indexOf(current.id);
+   204→        const nextIndex = (currentIndex + 1) % themes.length;
+   205→        IDEThemes.applyTheme(themes[nextIndex]);
+   206→        
+   207→        if (IDEUtils) {
+   208→          IDEUtils.showToast(`Theme: ${IDEThemes.THEMES[themes[nextIndex]].name}`, 'info', 2000);
+   209→        }
+   210→      });
+   211→    }
+   212→    
+   213→    // Editor panel toggle (id="editor-panel-toggle")
+   214→    const editorToggleBtn = document.getElementById('editor-panel-toggle');
+   215→    if (editorToggleBtn) {
+   216→      editorToggleBtn.addEventListener('click', () => {
+   217→        if (window.IDEState) {
+   218→          IDEState.setEditorPanelOpen(!IDEState.get('editorPanelOpen'));
+   219→        }
+   220→      });
+   221→    }
+   222→
+   223→    // ============================================
+   224→    // Mobile bottom-nav buttons (Files / Chat / Editor / Settings)
+   225→    // Wire up click handlers so the buttons actually do something.
+   226→    // On mobile (<768px), only one panel can comfortably fit at a time,
+   227→    // so each button hides the others and shows its target.
+   228→    // ============================================
+   229→    const mobileNav = document.getElementById('mobile-nav');
+   230→    
+   231→    // Create backdrop overlay for sidebar mode (tapping outside closes it)
+   232→    let mobileBackdrop = null;
+   233→    function getMobileBackdrop() {
+   234→      if (!mobileBackdrop) {
+   235→        mobileBackdrop = document.createElement('div');
+   236→        mobileBackdrop.className = 'mobile-overlay';
+   237→        mobileBackdrop.setAttribute('aria-hidden', 'true');
+   238→        mobileBackdrop.addEventListener('click', () => {
+   239→          // When backdrop is tapped, switch back to chat view
+   240→          const chatBtn = mobileNav?.querySelector('.mobile-nav-btn[data-panel="chat"]');
+   241→          if (chatBtn) chatBtn.click();
+   242→        });
+   243→        document.body.appendChild(mobileBackdrop);
+   244→      }
+   245→      return mobileBackdrop;
+   246→    }
+   247→
+   248→    function showMobileBackdrop() {
+   249→      const backdrop = getMobileBackdrop();
+   250→      backdrop.classList.remove('hidden');
+   251→      // Force reflow then add visible
+   252→      void backdrop.offsetWidth;
+   253→    }
+   254→
+   255→    function hideMobileBackdrop() {
+   256→      if (mobileBackdrop) {
+   257→        mobileBackdrop.classList.add('hidden');
+   258→      }
+   259→    }
+   260→
+   261→    // Debounce tracker to prevent rapid-fire button presses
+   262→    let lastMobileNavClick = 0;
+   263→    const MOBILE_NAV_DEBOUNCE_MS = 150;
+   264→
+   265→    if (mobileNav) {
+   266→      const mobileBtns = mobileNav.querySelectorAll('.mobile-nav-btn');
+   267→      
+   268→      mobileBtns.forEach(btn => {
+   269→        btn.addEventListener('click', (e) => {
+   270→          // Prevent default for touch devices to avoid any ghost clicks
+   271→          // e.preventDefault();
+   272→          
+   273→          if (btn.disabled) return;
+   274→          
+   275→          // Debounce: ignore rapid repeated clicks
+   276→          const now = Date.now();
+   277→          if (now - lastMobileNavClick < MOBILE_NAV_DEBOUNCE_MS) return;
+   278→          lastMobileNavClick = now;
+   279→
+   280→          const panel = btn.dataset.panel;
+   281→          if (!panel) return;
+   282→
+   283→          // Update active state on the nav buttons
+   284→          // Special case: settings is a momentary action — don't keep it active
+   285→          const isMomentaryAction = panel === 'settings';
+   286→          mobileBtns.forEach(b => {
+   287→            if (isMomentaryAction) {
+   288→              b.classList.remove('active');
+   289→              // Restore previous active state after a delay
+   290→              requestAnimationFrame(() => {
+   291→                const chatBtn = mobileNav.querySelector('.mobile-nav-btn[data-panel="chat"]');
+   292→                if (chatBtn) chatBtn.classList.add('active');
+   293→              });
+   294→            } else {
+   295→              b.classList.toggle('active', b === btn);
+   296→            }
+   297→          });
+   298→
+   299→          const sidebarEl = document.getElementById('sidebar');
+   300→          const chatEl = document.getElementById('chat-area');
+   301→          const editorEl = document.getElementById('editor-panel');
+   302→
+   303→          switch (panel) {
+   304→            case 'sidebar': {
+   305→              // Show sidebar, hide chat + editor on mobile
+   306→              if (sidebarEl) sidebarEl.classList.remove('hidden');
+   307→              if (chatEl) chatEl.classList.add('hidden');
+   308→              if (editorEl) editorEl.classList.add('hidden');
+   309→              if (AppState?.sidebar) AppState.sidebar.showSidebar();
+   310→              if (window.IDEState) IDEState.setSidebarOpen(true);
+   311→              // Show backdrop so user can tap to close sidebar
+   312→              showMobileBackdrop();
+   313→              break;
+   314→            }
+   315→            case 'chat': {
+   316→              // Show chat, hide sidebar + editor on mobile
+   317→              if (sidebarEl) {
+   318→                sidebarEl.classList.add('hidden');
+   319→                // Also close the sidebar slide-out
+   320→                if (AppState?.sidebar) AppState.sidebar.hideSidebar?.();
+   321→              }
+   322→              if (chatEl) chatEl.classList.remove('hidden');
+   323→              if (editorEl) editorEl.classList.add('hidden');
+   324→              if (window.IDEState) IDEState.setEditorPanelOpen(false);
+   325→              hideMobileBackdrop();
+   326→              break;
+   327→            }
+   328→            case 'editor': {
+   329→              // Show editor, hide sidebar + chat on mobile
+   330→              if (sidebarEl) {
+   331→                sidebarEl.classList.add('hidden');
+   332→                if (AppState?.sidebar) AppState.sidebar.hideSidebar?.();
+   333→              }
+   334→              if (chatEl) chatEl.classList.add('hidden');
+   335→              if (editorEl) editorEl.classList.remove('hidden');
+   336→              if (window.IDEState) IDEState.setEditorPanelOpen(true);
+   337→              hideMobileBackdrop();
+   338→              break;
+   339→            }
+   340→            case 'settings': {
+   341→              // Open the settings modal — this is momentary, don't change panels
+   342→              if (AppState?.sidebar && typeof AppState.sidebar.toggleSettings === 'function') {
+   343→                AppState.sidebar.toggleSettings(true);
+   344→                
+   345→                // Watch for settings modal close to restore proper active state
+   346→                const settingsModal = document.getElementById('settings-modal');
+   347→                if (settingsModal) {
+   348→                  const observer = new MutationObserver((mutations) => {
+   349→                    mutations.forEach((mutation) => {
+   350→                      if (mutation.attributeName === 'class') {
+   351→                        if (settingsModal.classList.contains('hidden')) {
+   352→                          // Modal closed — ensure chat button is active again
+   353→                          const chatBtn = mobileNav.querySelector('.mobile-nav-btn[data-panel="chat"]');
+   354→                          mobileBtns.forEach(b => b.classList.remove('active'));
+   355→                          if (chatBtn) chatBtn.classList.add('active');
+   356→                          observer.disconnect();
+   357→                        }
+   358→                      }
+   359→                    });
+   360→                  });
+   361→                  observer.observe(settingsModal, { attributes: true });
+   362→                  
+   363→                  // Auto-disconnect after 10 seconds (safety net)
+   364→                  setTimeout(() => observer.disconnect(), 10000);
+   365→                }
+   366→              }
+   367→              break;
+   368→            }
+   369→          }
+   370→        });
+   371→
+   372→        // Prevent touch-hold context menu on nav buttons
+   373→        btn.addEventListener('contextmenu', (e) => e.preventDefault());
+   374→      });
+   375→
+   376→      // Keep mobile-nav button active state in sync with editor panel visibility
+   377→      if (window.IDEState) {
+   378→        IDEState.subscribe((state, prevState) => {
+   379→          if (state.editorPanelOpen !== prevState.editorPanelOpen) {
+   380→            const editorBtn = mobileNav.querySelector('.mobile-nav-btn[data-panel="editor"]');
+   381→            const chatBtn = mobileNav.querySelector('.mobile-nav-btn[data-panel="chat"]');
+   382→            // Only update active state if we're on mobile (mobile-nav is visible)
+   383→            const isMobile = window.matchMedia('(max-width: 767px)').matches;
+   384→            if (!isMobile) return;
+   385→            if (editorBtn && chatBtn) {
+   386→              editorBtn.classList.toggle('active', state.editorPanelOpen);
+   387→              chatBtn.classList.toggle('active', !state.editorPanelOpen);
+   388→            }
+   389→          }
+   390→        });
+   391→      }
+   392→
+   393→      // Handle sidebar close from within sidebar component (e.g., X button)
+   394→      // and sync mobile nav state
+   395→      const sidebarObserver = new MutationObserver((mutations) => {
+   396→        const sidebarEl = document.getElementById('sidebar');
+   397→        if (!sidebarEl) return;
+   398→        
+   399→        mutations.forEach((mutation) => {
+   400→          if (mutation.attributeName === 'class') {
+   401→            const isOpen = sidebarEl.classList.contains('open') && !sidebarEl.classList.contains('hidden');
+   402→            const sidebarBtn = mobileNav.querySelector('.mobile-nav-btn[data-panel="sidebar"]');
+   403→            
+   404→            if (!isOpen && sidebarBtn?.classList.contains('active')) {
+   405→              // Sidebar was closed externally — switch to chat
+   406→              const chatBtn = mobileNav.querySelector('.mobile-nav-btn[data-panel="chat"]');
+   407→              mobileBtns.forEach(b => b.classList.remove('active'));
+   408→              if (chatBtn) chatBtn.classList.add('active');
+   409→              hideMobileBackdrop();
+   410→            }
+   411→          }
+   412→        });
+   413→      });
+   414→
+   415→      const sidebarEl = document.getElementById('sidebar');
+   416→      if (sidebarEl) {
+   417→        sidebarObserver.observe(sidebarEl, { attributes: true });
+   418→      }
+   419→    }
+   420→    
+   421→    // ============================================
+   422→    // Chat Toolbar Toggles: Web Search & Diff Patch Mode
+   423→    // These are momentary/per-message toggles that modify how the next
+   424→    // message is processed. State is stored in window.__ideToolbarState
+   425→    // (initialized by boot.js, read by api.js).
+   426→    // ============================================
+   427→    
+   428→    // Ensure toolbar state exists (boot.js should have created it)
+   429→    if (!window.__ideToolbarState) {
+   430→      window.__ideToolbarState = {
+   431→        webSearchEnabled: false,
+   432→        diffPatchMode: false
+   433→      };
+   434→    }
+   435→    
+   436→    // Web Search Toggle Button
+   437→    const webSearchBtn = document.getElementById('web-search-btn');
+   438→    if (webSearchBtn) {
+   439→      webSearchBtn.addEventListener('click', () => {
+   440→        const isNowActive = !window.__ideToolbarState.webSearchEnabled;
+   441→        window.__ideToolbarState.webSearchEnabled = isNowActive;
+   442→        
+   443→        // Update button visual state
+   444→        webSearchBtn.classList.toggle('active', isNowActive);
+   445→        webSearchBtn.setAttribute('aria-pressed', String(isNowActive));
+   446→        
+   447→        // Update context indicator visibility
+   448→        const contextIndicator = document.getElementById('context-indicator');
+   449→        if (contextIndicator) {
+   450→          contextIndicator.classList.toggle('hidden', !isNowActive);
+   451→          if (isNowActive) {
+   452→            contextIndicator.style.color = 'var(--color-primary, #6366f1)';
+   453→          }
+   454→        }
+   455→        
+   456→        // Dispatch event so other components can react
+   457→        window.dispatchEvent(new CustomEvent('toolbar:websearch-toggle', { 
+   458→          detail: { enabled: isNowActive } 
+   459→        }));
+   460→        
+   461→        // Show brief toast feedback
+   462→        if (window.AppState?.showToast) {
+   463→          window.AppState.showToast(
+   464→            isNowActive ? '🔍 Web search enabled — AI will search the internet' : 'Web search disabled',
+   465→            'info',
+   466→            2000
+   467→          );
+   468→        }
+   469→      });
+   470→    }
+   471→    
+   472→    // Diff Patch Mode Toggle Button
+   473→    const diffPatchBtn = document.getElementById('diff-patch-btn');
+   474→    if (diffPatchBtn) {
+   475→      diffPatchBtn.addEventListener('click', () => {
+   476→        const isNowActive = !window.__ideToolbarState.diffPatchMode;
+   477→        window.__ideToolbarState.diffPatchMode = isNowActive;
+   478→        
+   479→        // Update button visual state
+   480→        diffPatchBtn.classList.toggle('active', isNowActive);
+   481→        diffPatchBtn.setAttribute('aria-pressed', String(isNowActive));
+   482→        
+   483→        // Dispatch event so other components can react
+   484→        window.dispatchEvent(new CustomEvent('toolbar:diffpatch-toggle', { 
+   485→          detail: { enabled: isNowActive } 
+   486→        }));
+   487→        
+   488→        // Show brief toast feedback
+   489→        if (window.AppState?.showToast) {
+   490→          window.AppState.showToast(
+   491→            isNowActive ? '📝 Diff patch mode enabled — responses use unified diff format' : 'Diff patch mode disabled',
+   492→            'info',
+   493→            2000
+   494→          );
+   495→        }
+   496→      });
+   497→    }
+   498→    
+   499→    // Auto-disable Web Search after each message is sent (momentary action)
+   500→    // Listen for send events from chat component
+   501→    window.addEventListener('chat:message-sent', () => {
+   502→      if (window.__ideToolbarState.webSearchEnabled) {
+   503→        window.__ideToolbarState.webSearchEnabled = false;
+   504→        if (webSearchBtn) {
+   505→          webSearchBtn.classList.remove('active');
+   506→          webSearchBtn.setAttribute('aria-pressed', 'false');
+   507→        }
+   508→        const contextIndicator = document.getElementById('context-indicator');
+   509→        if (contextIndicator) contextIndicator.classList.add('hidden');
+   510→      }
+   511→      
+   512→      // Note: Diff Patch Mode persists until explicitly toggled off
+   513→      // because it's a mode preference, not a one-shot action
+   514→    });
+   515→    
+   516→    // Persist/restore toolbar state from localStorage
+   517→    try {
+   518→      const savedDiffPatch = localStorage.getItem('sbide-diff-patch-mode');
+   519→      if (savedDiffPatch === 'true') {
+   520→        window.__ideToolbarState.diffPatchMode = true;
+   521→        if (diffPatchBtn) {
+   522→          diffPatchBtn.classList.add('active');
+   523→          diffPatchBtn.setAttribute('aria-pressed', 'true');
+   524→        }
+   525→      }
+   526→    } catch (e) {
+   527→      // localStorage unavailable, ignore
+   528→    }
+   529→    
+   530→    // Save diff patch state on change
+   531→    window.addEventListener('toolbar:diffpatch-toggle', (e) => {
+   532→      try {
+   533→        localStorage.setItem('sbide-diff-patch-mode', String(e.detail.enabled));
+   534→      } catch (e) {
+   535→        // ignore
+   536→      }
+   537→    });
+   538→
+   539→    // Download current file button (id="download-file-btn").
+   540→    // Despite its old name, this button lives inside the editor header and is
+   541→    // labelled "Download file" — it should download the currently active file,
+   542→    // not the whole project. Project export is still available via the
+   543→    // header's export icon and the project context menu.
+   544→    const exportBtn = document.getElementById('download-file-btn');
+   545→    if (exportBtn) {
+   546→      exportBtn.addEventListener('click', handleDownloadCurrentFile);
+   547→    }
+   548→    
+   549→    // View mode toggles (id="btn-view-chat", id="btn-view-editor", id="btn-view-preview")
+   550→    const viewChatBtn = document.getElementById('btn-view-chat');
+   551→    const viewEditorBtn = document.getElementById('btn-view-editor');
+   552→    const viewPreviewBtn = document.getElementById('btn-view-preview');
+   553→    
+   554→    // Helper to deactivate all view buttons
+   555→    function deactivateAllViewButtons() {
+   556→      [viewChatBtn, viewEditorBtn, viewPreviewBtn].forEach(btn => {
+   557→        if (btn) {
+   558→          btn.classList.remove('active');
+   559→          btn.setAttribute('aria-selected', 'false');
+   560→        }
+   561→      });
+   562→    }
+   563→    
+   564→    // --- Independent visibility toggles (Issue #3 fix) ---
+   565→    // Chat and Editor buttons toggle their respective panels on/off
+   566→    // independently. Both can be visible at once (split view), and
+   567→    // either can be the sole visible panel (filling the full width).
+   568→    // Preview is a *mode* of the editor: clicking it shows the editor
+   569→    // and switches it to preview mode.
+   570→
+   571→    function syncViewToggleStates() {
+   572→      const chat = document.getElementById('chat-area');
+   573→      const editor = document.getElementById('editor-panel');
+   574→      const chatVisible = chat ? !chat.classList.contains('hidden') : false;
+   575→      const editorVisible = editor ? !editor.classList.contains('hidden') : false;
+   576→
+   577→      if (viewChatBtn) {
+   578→        viewChatBtn.classList.toggle('active', chatVisible);
+   579→        viewChatBtn.setAttribute('aria-selected', String(chatVisible));
+   580→        viewChatBtn.setAttribute('aria-pressed', String(chatVisible));
+   581→      }
+   582→      if (viewEditorBtn) {
+   583→        viewEditorBtn.classList.toggle('active', editorVisible);
+   584→        viewEditorBtn.setAttribute('aria-selected', String(editorVisible));
+   585→        viewEditorBtn.setAttribute('aria-pressed', String(editorVisible));
+   586→      }
+   587→      // Preview button active state is handled separately when entering
+   588→      // preview mode; default to inactive on sync.
+   589→      if (viewPreviewBtn && !window.__idePreviewActive) {
+   590→        viewPreviewBtn.classList.remove('active');
+   591→        viewPreviewBtn.setAttribute('aria-selected', 'false');
+   592→        viewPreviewBtn.setAttribute('aria-pressed', 'false');
+   593→      }
+   594→    }
+   595→
+   596→    function ensureAtLeastOneVisible() {
+   597→      const chat = document.getElementById('chat-area');
+   598→      const editor = document.getElementById('editor-panel');
+   599→      const chatHidden = chat ? chat.classList.contains('hidden') : true;
+   600→      const editorHidden = editor ? editor.classList.contains('hidden') : true;
+   601→      if (chatHidden && editorHidden) {
+   602→        // Re-show chat as a sane default so the user isn't staring at empty space.
+   603→        // Direct class toggle is safe here because no state change accompanies it
+   604→        // (so no subscriber fires to interrupt the transition).
+   605→        chat?.classList.remove('hidden');
+   606→        if (window.IDEState) IDEState.setEditorPanelOpen(false);
+   607→      }
+   608→    }
+   609→
+   610→    // Chat button: toggle chat-area visibility
+   611→    if (viewChatBtn) {
+   612→      viewChatBtn.addEventListener('click', () => {
+   613→        const chat = document.getElementById('chat-area');
+   614→        if (!chat) return;
+   615→        const willShow = chat.classList.contains('hidden');
+   616→        chat.classList.toggle('hidden', !willShow);
+   617→        // If hiding chat would leave nothing visible, force editor open.
+   618→        // Only update state — the subscriber applies the class change so
+   619→        // the editor's CSS transition isn't interrupted by a redundant
+   620→        // direct classList.toggle.
+   621→        if (!willShow) {
+   622→          const editor = document.getElementById('editor-panel');
+   623→          if (editor && editor.classList.contains('hidden')) {
+   624→            if (window.IDEState) IDEState.setEditorPanelOpen(true);
+   625→          }
+   626→        }
+   627→        syncViewToggleStates();
+   628→      });
+   629→    }
+   630→
+   631→    // Editor button: toggle editor-panel visibility
+   632→    //
+   633→    // We DO NOT toggle the .hidden class directly here. The state subscriber
+   634→    // (registered below) is the single source of truth that applies the class
+   635→    // change. Doing it in both places caused the browser to see two rapid
+   636→    // class mutations on the same element, which interrupted the CSS
+   637→    // transition and made the editor panel snap open/closed without animating
+   638→    // (the chat toggle, by contrast, only touches the class once and animates
+   639→    // correctly).
+   640→    if (viewEditorBtn) {
+   641→      viewEditorBtn.addEventListener('click', () => {
+   642→        const editor = document.getElementById('editor-panel');
+   643→        if (!editor) return;
+   644→        const willShow = editor.classList.contains('hidden');
+   645→        // Update state — the subscriber will toggle .hidden and animate.
+   646→        if (window.IDEState) IDEState.setEditorPanelOpen(willShow);
+   647→        // If hiding editor would leave nothing visible, force chat open.
+   648→        if (!willShow) {
+   649→          const chat = document.getElementById('chat-area');
+   650→          if (chat && chat.classList.contains('hidden')) {
+   651→            chat.classList.remove('hidden');
+   652→          }
+   653→        }
+   654→        // Exiting preview mode if we're toggling the editor
+   655→        if (!willShow && window.__idePreviewActive) {
+   656→          window.__idePreviewActive = false;
+   657→        }
+   658→        syncViewToggleStates();
+   659→      });
+   660→    }
+   661→
+   662→    // Preview button: switch editor into preview mode (don't hide chat)
+   663→    if (viewPreviewBtn) {
+   664→      viewPreviewBtn.addEventListener('click', () => {
+   665→        const activeFile = window.IDEState?.get('activeFile');
+   666→
+   667→        let canPreviewFile = false;
+   668→        if (activeFile) {
+   669→          const name = activeFile.name || activeFile.path || '';
+   670→          canPreviewFile = /\.(html?|md|markdown)$/i.test(name);
+   671→        }
+   672→
+   673→        if (!canPreviewFile && !activeFile) {
+   674→          if (window.IDEUtils) {
+   675→            IDEUtils.showToast('Open an HTML or Markdown file to preview', 'info', 3000);
+   676→          }
+   677→          return;
+   678→        }
+   679→
+   680→        if (!canPreviewFile && activeFile) {
+   681→          if (window.IDEUtils) {
+   682→            IDEUtils.showToast('Only HTML and Markdown files can be previewed', 'warning', 3000);
+   683→          }
+   684→          return;
+   685→        }
+   686→
+   687→        // Make sure editor is visible
+   688→        const editor = document.getElementById('editor-panel');
+   689→        if (editor && editor.classList.contains('hidden')) {
+   690→          editor.classList.remove('hidden');
+   691→          if (window.IDEState) IDEState.setEditorPanelOpen(true);
+   692→        }
+   693→
+   694→        // Toggle preview mode
+   695→        window.__idePreviewActive = true;
+   696→        if (viewPreviewBtn) {
+   697→          viewPreviewBtn.classList.add('active');
+   698→          viewPreviewBtn.setAttribute('aria-selected', 'true');
+   699→          viewPreviewBtn.setAttribute('aria-pressed', 'true');
+   700→        }
+   701→
+   702→        // Trigger preview mode in code editor
+   703→        if (window.CodeEditorComponent && AppState.codeEditor) {
+   704→          const previewAction = document.querySelector('[data-action="preview"]');
+   705→          if (previewAction) {
+   706→            previewAction.click();
+   707→          } else if (typeof CodeEditorComponent.setMode === 'function') {
+   708→            CodeEditorComponent.setMode('preview');
+   709→          }
+   710→        }
+   711→        syncViewToggleStates();
+   712→      });
+   713→    }
+   714→
+   715→    // Keep toggle buttons in sync when other code changes panel visibility
+   716→    if (window.IDEState) {
+   717→      IDEState.subscribe((state, prevState) => {
+   718→        if (state.editorPanelOpen !== prevState.editorPanelOpen) {
+   719→          const editor = document.getElementById('editor-panel');
+   720→          if (editor) {
+   721→            editor.classList.toggle('hidden', !state.editorPanelOpen);
+   722→          }
+   723→          syncViewToggleStates();
+   724→        }
+   725→      });
+   726→    }
+   727→    // Initial sync after init
+   728→    setTimeout(syncViewToggleStates, 0);
+   729→    
+   730→    // Refresh files button (id="refresh-files-btn") - in sidebar panel
+   731→    const refreshBtn = document.getElementById('refresh-files-btn');
+   732→    if (refreshBtn) {
+   733→      refreshBtn.addEventListener('click', handleRefreshFiles);
+   734→    }
+   735→    
+   736→    // Save file button (id="save-file-btn")
+   737→    const saveFileBtn = document.getElementById('save-file-btn');
+   738→    if (saveFileBtn) {
+   739→      saveFileBtn.addEventListener('click', async () => {
+   740→        if (AppState.codeEditor) {
+   741→          await AppState.codeEditor.saveCurrentFile();
+   742→        }
+   743→      });
+   744→    }
+   745→    
+   746→    // Close settings modal button
+   747→    const closeSettingsBtn = document.getElementById('close-settings-btn');
+   748→    if (closeSettingsBtn) {
+   749→      closeSettingsBtn.addEventListener('click', () => {
+   750→        document.getElementById('settings-modal')?.classList.add('hidden');
+   751→      });
+   752→    }
+   753→    
+   754→    // Close settings modal on overlay click
+   755→    const settingsModal = document.getElementById('settings-modal');
+   756→    if (settingsModal) {
+   757→      settingsModal.addEventListener('click', (e) => {
+   758→        if (e.target === settingsModal) {
+   759→          settingsModal.classList.add('hidden');
+   760→        }
+   761→      });
+   762→    }
+   763→    
+   764→    // LLM Provider Switcher Button (id="llm-provider-btn")
+   765→    const llmProviderBtn = document.getElementById('llm-provider-btn');
+   766→    if (llmProviderBtn && window.LLMManagerComponent) {
+   767→      llmProviderBtn.addEventListener('click', () => {
+   768→        LLMManagerComponent.showSwitcherModal();
+   769→      });
+   770→    }
+   771→    
+   772→    // Context Window Indicator (id="context-window-indicator")
+   773→    const contextIndicator = document.getElementById('context-window-indicator');
+   774→    if (contextIndicator && window.LLMManagerComponent) {
+   775→      contextIndicator.addEventListener('click', () => {
+   776→        LLMManagerComponent.showSwitcherModal();
+   777→      });
+   778→      // Initial update
+   779→      updateContextWindowIndicator();
+   780→    }
+   781→    
+   782→    // Listen for context updates
+   783→    window.addEventListener('llm:contextUpdate', updateContextWindowIndicator);
+   784→    
+   785→    // Listen for provider changes
+   786→    window.addEventListener('llm:providerChanged', updateProviderBadge);
+   787→    
+   788→    // Listen for rate limits
+   789→    window.addEventListener('llm:rateLimit', handleRateLimitEvent);
+   790→  }
+   791→
+   792→  /**
+   793→   * Setup keyboard shortcuts
+   794→   */
+   795→  function setupKeyboardShortcuts() {
+   796→    document.addEventListener('keydown', (e) => {
+   797→      // Don't trigger when typing in inputs
+   798→      if (e.target.matches('input, textarea, [contenteditable]')) {
+   799→        if (e.key === 'Escape') {
+   800→          // Close any open modal
+   801→          const openModal = document.querySelector('.modal-overlay:not(.hidden)');
+   802→          if (openModal) {
+   803→            openModal.classList.add('hidden');
+   804→          }
+   805→          
+   806→          // Close settings modal
+   807→          document.getElementById('settings-modal')?.classList.add('hidden');
+   808→        }
+   809→        return;
+   810→      }
+   811→      
+   812→      // Ctrl/Cmd + B - Toggle sidebar
+   813→      if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+   814→        e.preventDefault();
+   815→        toggleSidebarVisibility();
+   816→      }
+   817→      
+   818→      // Ctrl/Cmd + P - Quick open file
+   819→      if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
+   820→        e.preventDefault();
+   821→        showQuickOpen();
+   822→      }
+   823→      
+   824→      // Ctrl/Cmd + S - Save file
+   825→      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+   826→        e.preventDefault();
+   827→        if (AppState.codeEditor) {
+   828→          AppState.codeEditor.saveCurrentFile();
+   829→        }
+   830→      }
+   831→      
+   832→      // F1 - Help
+   833→      if (e.key === 'F1') {
+   834→        e.preventDefault();
+   835→        showHelp();
+   836→      }
+   837→    });
+   838→  }
+   839→
+   840→  /**
+   841→   * Setup window events
+   842→   */
+   843→  function setupWindowEvents() {
+   844→    // Handle visibility change
+   845→    document.addEventListener('visibilitychange', () => {
+   846→      if (document.hidden) {
+   847→        console.log('Page hidden');
+   848→      } else {
+   849→        console.log('Page visible');
+   850→      }
+   851→    });
+   852→    
+   853→    // Handle beforeunload (warn about unsaved changes)
+   854→    window.addEventListener('beforeunload', (e) => {
+   855→      const editorState = AppState.codeEditor?.getState?.();
+   856→      if (editorState?.hasChanges) {
+   857→        e.preventDefault();
+   858→        e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+   859→      }
+   860→    });
+   861→    
+   862→    // Handle online/offline
+   863→    window.addEventListener('online', () => {
+   864→      if (IDEUtils) IDEUtils.showToast('Connection restored', 'success');
+   865→    });
+   866→    
+   867→    window.addEventListener('offline', () => {
+   868→      if (IDEUtils) IDEUtils.showToast('You are offline. Some features may be limited.', 'warning');
+   869→    });
+   870→
+   871→    // ─────────────────────────────────────────────────────
+   872→    // Offline Kit integration: surface a one-line status
+   873→    // summary when the kit comes online. The kit also mounts
+   874→    // its own bottom-right badge (clickable to open settings)
+   875→    // — this toast is the additional first-run cue.
+   876→    // ─────────────────────────────────────────────────────
+   877→    window.addEventListener('offlinekit:ready', (e) => {
+   878→      const status = e.detail || {};
+   879→      const parts = [];
+   880→      if (status.storage === 'opfs') parts.push('OPFS storage');
+   881→      else if (status.storage === 'filesystem') parts.push('Disk folder connected');
+   882→      else if (status.storage === 'memory') parts.push('Memory-only storage');
+   883→
+   884→      if (status.llm?.type === 'ollama') parts.push(`Ollama: ${status.llm.model || 'ready'}`);
+   885→      else if (status.llm?.type === 'webllm') parts.push('WebLLM ready (loads on first chat)');
+   886→      else if (status.llm?.type === 'cloud') parts.push(`Cloud LLM: ${status.llm.model || 'configured'}`);
+   887→      else if (status.webLLMSupported) parts.push('Local LLM available (click badge → settings)');
+   888→
+   889→      if (parts.length === 0) return;
+   890→      const msg = `Offline Kit ready · ${parts.join(' · ')}`;
+   891→      if (window.IDEUtils && IDEUtils.showToast) {
+   892→        IDEUtils.showToast(msg, 'info', 5000);
+   893→      }
+   894→      console.log('[App]', msg, status);
+   895→    });
+   896→  }
+   897→
+   898→  /**
+   899→   * Setup context menu handler
+   900→   */
+   901→  function setupContextMenuHandler() {
+   902→    window.addEventListener('filecontextmenu', async (event) => {
+   903→      const { event: mouseEvent, item } = event.detail;
+   904→      
+   905→      // Create custom context menu
+   906→      const menu = document.createElement('div');
+   907→      menu.className = 'context-menu';
+   908→      menu.innerHTML = `
+   909→        <div class="context-menu-item" data-action="open">Open</div>
+   910→        ${item.type === 'file' ? `
+   911→          <div class="context-menu-item" data-action="edit">Edit</div>
+   912→          <div class="context-menu-item" data-action="copy-path">Copy Path</div>
+   913→          <div class="context-menu-divider"></div>
+   914→          <div class="context-menu-item danger" data-action="delete">Delete</div>
+   915→        ` : `
+   916→          <div class="context-menu-item" data-action="new-file">New File</div>
+   917→          <div class="context-menu-item" data-action="new-folder">New Folder</div>
+   918→          <div class="context-menu-divider"></div>
+   919→          <div class="context-menu-item danger" data-action="delete">Delete</div>
+   920→        `}
+   921→      `;
+   922→      
+   923→      // Position menu
+   924→      menu.style.left = mouseEvent.pageX + 'px';
+   925→      menu.style.top = mouseEvent.pageY + 'px';
+   926→      document.body.appendChild(menu);
+   927→      
+   928→      // Handle clicks
+   929→      menu.querySelectorAll('.context-menu-item').forEach(itemEl => {
+   930→        itemEl.addEventListener('click', () => {
+   931→          const action = itemEl.dataset.action;
+   932→          handleContextAction(action, item);
+   933→          menu.remove();
+   934→        });
+   935→      });
+   936→      
+   937→      // Close on click outside
+   938→      setTimeout(() => {
+   939→        document.addEventListener('click', function closeMenu(e) {
+   940→          if (!menu.contains(e.target)) {
+   941→            menu.remove();
+   942→            document.removeEventListener('click', closeMenu);
+   943→          }
+   944→        });
+   945→      }, 0);
+   946→    });
+   947→  }
+   948→
+   949→  // ============================================
+   950→  // Initial Data Loading
+   951→  // ============================================
+   952→  
+   953→  /**
+   954→   * Load initial data after components are ready
+   955→   */
+   956→  async function loadInitialData() {
+   957→    const savedState = IDEState.getState();
+   958→    
+   959→    // If there's a current project, load its data
+   960→    if (savedState.currentProject) {
+   961→      console.log('Loading project:', savedState.currentProject.name);
+   962→      
+   963→      if (AppState.sidebar) {
+   964→        await AppState.sidebar.loadProjectData(savedState.currentProject);
+   965→      }
+   966→    } else {
+   967→      // Try to get most recent project
+   968→      try {
+   969→        const projects = await IDEStorage.Projects.getAll();
+   970→        if (projects.length > 0) {
+   971→          console.log('Auto-loading most recent project:', projects[0].name);
+   972→          if (window.IDEState) {
+   973→            IDEState.setCurrentProject(projects[0]);
+   974→          }
+   975→          if (AppState.sidebar) {
+   976→            await AppState.sidebar.loadProjectData(projects[0]);
+   977→          }
+   978→        }
+   979→      } catch (error) {
+   980→        console.warn('Could not load projects:', error);
+   981→      }
+   982→    }
+   983→    
+   984→    // Note: populateProjectsList() is called internally by loadProjectData() above
+   985→    // No need to call it separately here
+   986→  }
+   987→
+   988→  // ============================================
+   989→  // Event Handlers - Cross-Component Communication
+   990→  // ============================================
+   991→  
+   992→  /**
+   993→   * Handle file selection from sidebar/file tree
+   994→   */
+   995→  function handleFileSelectFromSidebar(file) {
+   996→    console.log('File selected:', file.path);
+   997→    // Code editor handles this internally via state subscription
+   998→  }
+   999→
+  1000→  /**
+  1001→   * Handle project change
+  1002→   */
+  1003→  function handleProjectChange(project) {
+  1004→    console.log('Project changed:', project?.name);
+  1005→  }
+  1006→
+  1007→  /**
+  1008→   * Handle content changes in editor
+  1009→   */
+  1010→  function handleEditorContentChange(content) {
+  1011→    // Could trigger auto-save preview, validation, etc.
+  1012→  }
+  1013→
+  1014→  /**
+  1015→   * Handle file save from editor
+  1016→   */
+  1017→  function handleFileSave(file, content) {
+  1018→    console.log('File saved:', file.path);
+  1019→    
+  1020→    // Update file tree to reflect changes
+  1021→    if (AppState.fileTree) {
+  1022→      AppState.fileTree.refresh();
+  1023→    }
+  1024→  }
+  1025→
+  1026→  /**
+  1027→   * Handle send message from chat
+  1028→   */
+  1029→  async function handleSendMessage(message, callbacks) {
+  1030→    const project = IDEState?.get('currentProject');
+  1031→    const messages = IDEState?.get('messages') || [];
+  1032→    
+  1033→    // Use API client for streaming
+  1034→    return IDEAPI.sendMessageStream({
+  1035→      message,
+  1036→      messages: messages.filter(m => !m.isStreaming),
+  1037→      projectName: project?.name || null,
+  1038→      projectState: IDEState?.get('projectState') || {},
+  1039→      ...callbacks
+  1040→    });
+  1041→  }
+  1042→
+  1043→  /**
+  1044→   * Handle tool actions from AI
+  1045→   */
+  1046→  function handleToolAction(action) {
+  1047→    console.log('Tool action:', action);
+  1048→    
+  1049→    switch (action.type) {
+  1050→      case 'call':
+  1051→        console.log(`AI called tool: ${action.tool}`, action.args);
+  1052→        break;
+  1053→        
+  1054→      case 'result':
+  1055→        console.log(`Tool result: ${action.success ? 'success' : 'failed'}`);
+  1056→        
+  1057→        // If a file was modified, refresh the tree
+  1058→        if (action.tool?.includes('file') || action.tool?.includes('write')) {
+  1059→          if (AppState.fileTree) {
+  1060→            AppState.fileTree.refresh();
+  1061→          }
+  1062→        }
+  1063→        break;
+  1064→    }
+  1065→  }
+  1066→
+  1067→  // ============================================
+  1068→  // Action Handlers
+  1069→  // ============================================
+  1070→  
+  1071→  /**
+  1072→   * Toggle sidebar visibility.
+  1073→   * (Restored from v1: delegates to SidebarComponent to avoid class-state
+  1074→   * desync between the DOM and the component's internal isOpen/isCollapsed.)
+  1075→   */
+  1076→  function toggleSidebarVisibility(forceState) {
+  1077→    if (AppState.sidebar) {
+  1078→      if (typeof forceState === 'boolean') {
+  1079→        if (forceState) {
+  1080→          AppState.sidebar.showSidebar();
+  1081→        } else {
+  1082→          AppState.sidebar.hideSidebar();
+  1083→        }
+  1084→      } else {
+  1085→        AppState.sidebar.toggleCollapse();
+  1086→      }
+  1087→    }
+  1088→  }
+  1089→
+  1090→  /**
+  1091→   * Download the currently active file in the editor as a single-file download
+  1092→   * (not a ZIP). Reads the latest content from storage so unsaved edits are
+  1093→   * not lost. If no file is active, falls back to a toast prompt.
+  1094→   */
+  1095→  async function handleDownloadCurrentFile() {
+  1096→    const activeFile = IDEState?.get('activeFile');
+  1097→    if (!activeFile || !activeFile.path) {
+  1098→      if (IDEUtils) IDEUtils.showToast('Open a file first to download it', 'info');
+  1099→      return;
+  1100→    }
+  1101→    
+  1102→    const project = IDEState?.get('currentProject');
+  1103→    if (!project) {
+  1104→      if (IDEUtils) IDEUtils.showToast('No project selected', 'warning');
+  1105→      return;
+  1106→    }
+  1107→    
+  1108→    try {
+  1109→      // Read the latest content from storage (respects any saved edits).
+  1110→      // Fall back to activeFile.content if storage read fails.
+  1111→      let content = activeFile.content;
+  1112→      try {
+  1113→        const stored = await IDEStorage.Files.readContent(project.name, activeFile.path);
+  1114→        if (stored != null) content = stored;
+  1115→      } catch (e) {
+  1116→        console.warn('Could not read file from storage, using in-memory copy:', e);
+  1117→      }
+  1118→      
+  1119→      // Pick a sensible MIME type from the file extension
+  1120→      const ext = (activeFile.name.split('.').pop() || '').toLowerCase();
+  1121→      const mimeMap = {
+  1122→        html: 'text/html', htm: 'text/html',
+  1123→        css: 'text/css', js: 'text/javascript', mjs: 'text/javascript',
+  1124→        ts: 'text/typescript', tsx: 'text/typescript', jsx: 'text/javascript',
+  1125→        json: 'application/json', md: 'text/markdown',
+  1126→        txt: 'text/plain', svg: 'image/svg+xml', xml: 'application/xml',
+  1127→        yaml: 'text/yaml', yml: 'text/yaml'
+  1128→      };
+  1129→      const mime = mimeMap[ext] || 'text/plain';
+  1130→      
+  1131→      const blob = new Blob([content || ''], { type: mime + ';charset=utf-8' });
+  1132→      const url = URL.createObjectURL(blob);
+  1133→      
+  1134→      const link = document.createElement('a');
+  1135→      link.href = url;
+  1136→      link.download = activeFile.name;
+  1137→      document.body.appendChild(link);
+  1138→      link.click();
+  1139→      document.body.removeChild(link);
+  1140→      
+  1141→      // Revoke on next tick so the download has time to start
+  1142→      setTimeout(() => URL.revokeObjectURL(url), 1000);
+  1143→      
+  1144→      if (IDEUtils) IDEUtils.showToast(`Downloaded ${activeFile.name}`, 'success');
+  1145→    } catch (error) {
+  1146→      console.error('File download failed:', error);
+  1147→      if (IDEUtils) IDEUtils.showToast('Download failed: ' + (error.message || 'unknown error'), 'error');
+  1148→    }
+  1149→  }
+  1150→
+  1151→  /**
+  1152→   * Export the entire current project as a ZIP archive (all files).
+  1153→   * Used by the project-level export action — NOT by the per-file
+  1154→   * download-file-btn in the editor header (which calls
+  1155→   * handleDownloadCurrentFile above).
+  1156→   */
+  1157→  async function handleExportProject() {
+  1158→    const project = IDEState?.get('currentProject');
+  1159→    if (!project) {
+  1160→      if (IDEUtils) IDEUtils.showToast('No project selected', 'warning');
+  1161→      return;
+  1162→    }
+  1163→    
+  1164→    try {
+  1165→      if (IDEUtils) IDEUtils.showToast('Preparing export...', 'info');
+  1166→      
+  1167→      const files = await IDEStorage.Files.exportAsObject(project.name);
+  1168→      
+  1169→      if (window.JSZip) {
+  1170→        const zip = new JSZip();
+  1171→        
+  1172→        Object.entries(files).forEach(([path, content]) => {
+  1173→          zip.file(path, content);
+  1174→        });
+  1175→        
+  1176→        const blob = await zip.generateAsync({ type: 'blob' });
+  1177→        const url = URL.createObjectURL(blob);
+  1178→        
+  1179→        const link = document.createElement('a');
+  1180→        link.href = url;
+  1181→        link.download = `${project.name}.zip`;
+  1182→        document.body.appendChild(link);
+  1183→        link.click();
+  1184→        document.body.removeChild(link);
+  1185→        URL.revokeObjectURL(url);
+  1186→        
+  1187→        if (IDEUtils) IDEUtils.showToast('Project exported!', 'success');
+  1188→      }
+  1189→      
+  1190→    } catch (error) {
+  1191→      console.error('Export failed:', error);
+  1192→      if (IDEUtils) IDEUtils.showToast('Export failed', 'error');
+  1193→    }
+  1194→  }
+  1195→
+  1196→  /**
+  1197→   * Create new file
+  1198→   */
+  1199→  function handleNewFile() {
+  1200→    const project = IDEState?.get('currentProject');
+  1201→    if (!project) {
+  1202→      if (IDEUtils) IDEUtils.showToast('Create or select a project first', 'warning');
+  1203→      return;
+  1204→    }
+  1205→    
+  1206→    const name = prompt('Enter filename:');
+  1207→    if (!name) return;
+  1208→    
+  1209→    const validation = IDEUtils?.validateFilename(name);
+  1210→    if (!validation?.valid) {
+  1211→      if (IDEUtils) IDEUtils.showToast(validation?.error || 'Invalid filename', 'error');
+  1212→      return;
+  1213→    }
+  1214→    
+  1215→    createNewFile(name);
+  1216→  }
+  1217→
+  1218→  async function createNewFile(filename) {
+  1219→    const project = IDEState?.get('currentProject');
+  1220→    if (!project) return;
+  1221→    
+  1222→    try {
+  1223→      await IDEStorage.Files.create({
+  1224→        project: project.name,
+  1225→        name: filename,
+  1226→        path: filename,
+  1227→        type: 'file',
+  1228→        content: '',
+  1229→        size: 0
+  1230→      });
+  1231→      
+  1232→      // Refresh file tree
+  1233→      if (AppState.fileTree) {
+  1234→        AppState.fileTree.refresh();
+  1235→      }
+  1236→      
+  1237→      // Open the new file
+  1238→      const newFile = await IDEStorage.Files.get(project.name, filename);
+  1239→      if (newFile && AppState.codeEditor) {
+  1240→        AppState.codeEditor.openFile({ ...newFile, project: project.name });
+  1241→      }
+  1242→      
+  1243→      if (IDEUtils) IDEUtils.showToast(`Created ${filename}`, 'success');
+  1244→      
+  1245→    } catch (error) {
+  1246→      console.error('Failed to create file:', error);
+  1247→      if (IDEUtils) IDEUtils.showToast('Failed to create file', 'error');
+  1248→    }
+  1249→  }
+  1250→
+  1251→  /**
+  1252→   * Create new folder
+  1253→   */
+  1254→  function handleNewFolder() {
+  1255→    const project = IDEState?.get('currentProject');
+  1256→    if (!project) {
+  1257→      if (IDEUtils) IDEUtils.showToast('Create or select a project first', 'warning');
+  1258→      return;
+  1259→    }
+  1260→    
+  1261→    const name = prompt('Enter folder name:');
+  1262→    if (!name) return;
+  1263→    
+  1264→    const validation = IDEUtils?.validateFilename(name);
+  1265→    if (!validation?.valid) {
+  1266→      if (IDEUtils) IDEUtils.showToast(validation?.error || 'Invalid folder name', 'error');
+  1267→      return;
+  1268→    }
+  1269→    
+  1270→    createNewFolder(name);
+  1271→  }
+  1272→
+  1273→  async function createNewFolder(folderName) {
+  1274→    const project = IDEState?.get('currentProject');
+  1275→    if (!project) return;
+  1276→    
+  1277→    try {
+  1278→      await IDEStorage.Files.create({
+  1279→        project: project.name,
+  1280→        name: folderName,
+  1281→        path: folderName,
+  1282→        type: 'folder',
+  1283→        children: []
+  1284→      });
+  1285→      
+  1286→      // Refresh file tree
+  1287→      if (AppState.fileTree) {
+  1288→        AppState.fileTree.refresh();
+  1289→      }
+  1290→      
+  1291→      if (IDEUtils) IDEUtils.showToast(`Created folder ${folderName}`, 'success');
+  1292→      
+  1293→    } catch (error) {
+  1294→      console.error('Failed to create folder:', error);
+  1295→      if (IDEUtils) IDEUtils.showToast('Failed to create folder', 'error');
+  1296→    }
+  1297→  }
+  1298→
+  1299→  /**
+  1300→   * Refresh files
+  1301→   */
+  1302→  async function handleRefreshFiles() {
+  1303→    if (IDEUtils) IDEUtils.showToast('Refreshing files...', 'info');
+  1304→    
+  1305→    if (AppState.fileTree) {
+  1306→      await AppState.fileTree.refresh();
+  1307→    }
+  1308→    
+  1309→    if (IDEUtils) IDEUtils.showToast('Files refreshed', 'success');
+  1310→  }
+  1311→
+  1312→  /**
+  1313→   * Handle context menu action
+  1314→   */
+  1315→  function handleContextAction(action, item) {
+  1316→    switch (action) {
+  1317→      case 'open':
+  1318→        if (item.type === 'file' && AppState.codeEditor) {
+  1319→          const project = IDEState?.get('currentProject');
+  1320→          AppState.codeEditor.openFile({ ...item, project: project?.name });
+  1321→        }
+  1322→        break;
+  1323→        
+  1324→      case 'edit':
+  1325→        if (item.type === 'file' && AppState.codeEditor) {
+  1326→          const project = IDEState?.get('currentProject');
+  1327→          AppState.codeEditor.openFile({ ...item, project: project?.name });
+  1328→          setTimeout(() => AppState.codeEditor.enterEditMode(), 100);
+  1329→        }
+  1330→        break;
+  1331→        
+  1332→      case 'copy-path':
+  1333→        if (IDEUtils && item.path) {
+  1334→          IDEUtils.copyToClipboard(item.path);
+  1335→        }
+  1336→        break;
+  1337→        
+  1338→      case 'delete':
+  1339→        deleteItem(item);
+  1340→        break;
+  1341→        
+  1342→      case 'new-file':
+  1343→        handleNewFile();
+  1344→        break;
+  1345→        
+  1346→      case 'new-folder':
+  1347→        handleNewFolder();
+  1348→        break;
+  1349→    }
+  1350→  }
+  1351→
+  1352→  async function deleteItem(item) {
+  1353→    const project = IDEState?.get('currentProject');
+  1354→    if (!project) return;
+  1355→    
+  1356→    const confirmed = confirm(`Delete "${item.name}"? This cannot be undone.`);
+  1357→    if (!confirmed) return;
+  1358→    
+  1359→    try {
+  1360→      await IDEStorage.Files.delete(project.name, item.path);
+  1361→      
+  1362→      // Close tab if open
+  1363→      if (AppState.codeEditor) {
+  1364→        AppState.codeEditor.closeTab(item.path);
+  1365→      }
+  1366→      
+  1367→      // Refresh tree
+  1368→      if (AppState.fileTree) {
+  1369→        AppState.fileTree.refresh();
+  1370→      }
+  1371→      
+  1372→      if (IDEUtils) IDEUtils.showToast(`Deleted ${item.name}`, 'success');
+  1373→      
+  1374→    } catch (error) {
+  1375→      console.error('Delete failed:', error);
+  1376→      if (IDEUtils) IDEUtils.showToast('Delete failed', 'error');
+  1377→    }
+  1378→  }
+  1379→
+  1380→  // ============================================
+  1381→  // Utility Features
+  1382→  // ============================================
+  1383→  
+  1384→  function showQuickOpen() {
+  1385→    if (IDEUtils) IDEUtils.showToast('Quick Open coming soon!', 'info');
+  1386→  }
+  1387→
+  1388→  function showHelp() {
+  1389→    alert(`SBIDE - Keyboard Shortcuts:
+  1390→    
+  1391→Ctrl+B - Toggle sidebar
+  1392→Ctrl+S - Save file
+  1393→Ctrl+P - Quick open
+  1394→Esc - Close modal / Exit edit mode`);
+  1395→  }
+  1396→
+  1397→  // ============================================
+  1398→  // Error Handling
+  1399→  // ============================================
+  1400→  
+  1401→  function showInitError(message) {
+  1402→    const errorEl = document.getElementById('init-error-message');
+  1403→    if (errorEl) {
+  1404→      errorEl.textContent = message;
+  1405→      errorEl.classList.remove('hidden');
+  1406→    }
+  1407→    
+  1408→    console.error('Initialization Error:', message);
+  1409→  }
+  1410→
+  1411→  // ============================================
+  1412→  // LLM Manager UI Helpers
+  1413→  // ============================================
+  1414→
+  1415→  /**
+  1416→   * Update context window indicator in toolbar
+  1417→   */
+  1418→  function updateContextWindowIndicator() {
+  1419→    if (!window.LLMManagerComponent) return;
+  1420→    
+  1421→    let usage;
+  1422→    try {
+  1423→      usage = LLMManagerComponent.getContextUsage();
+  1424→    } catch (e) {
+  1425→      usage = null;
+  1426→    }
+  1427→    
+  1428→    // Defensive: ensure usage is a valid object with numeric percentage
+  1429→    const safePct = (usage && typeof usage.percentage === 'number' && !isNaN(usage.percentage)) 
+  1430→      ? Math.min(100, Math.max(0, usage.percentage)) : 0;
+  1431→    const safeTotal = (usage && typeof usage.total === 'number' && !isNaN(usage.total)) 
+  1432→      ? usage.total : 0;
+  1433→    const safeUsed = (usage && typeof usage.used === 'number' && !isNaN(usage.used)) 
+  1434→      ? usage.used : 0;
+  1435→    const safeMsgCount = (usage && typeof usage.messageCount === 'number') 
+  1436→      ? usage.messageCount : 0;
+  1437→    
+  1438→    // Update fill bar
+  1439→    const fill = document.getElementById('context-window-fill');
+  1440→    if (fill) {
+  1441→      fill.style.width = `${safePct}%`;
+  1442→      
+  1443→      // Color based on usage level
+  1444→      fill.classList.remove('warning', 'danger');
+  1445→      if (safePct > 80) {
+  1446→        fill.classList.add('danger');
+  1447→      } else if (safePct > 60) {
+  1448→        fill.classList.add('warning');
+  1449→      }
+  1450→    }
+  1451→    
+  1452→    // Update text - show informative label when no/low usage
+  1453→    const text = document.getElementById('context-window-text');
+  1454→    if (text) {
+  1455→      const provider = LLMManagerComponent.getCurrentProvider();
+  1456→      
+  1457→      if (!provider) {
+  1458→        text.textContent = '—';
+  1459→        text.style.color = 'var(--color-text-muted, #9ca3af)';
+  1460→      } else if (safePct === 0 && safeMsgCount === 0) {
+  1461→        text.textContent = 'Ready';
+  1462→        text.style.color = 'var(--color-text-tertiary, #9ca3af)';
+  1463→      } else {
+  1464→        text.textContent = `${safePct}%`;
+  1465→        text.style.color = '';
+  1466→      }
+  1467→    }
+  1468→    
+  1469→    // Update title with more info
+  1470→    const indicator = document.getElementById('context-window-indicator');
+  1471→    if (indicator) {
+  1472→      const provider = LLMManagerComponent.getCurrentProvider();
+  1473→      if (!provider) {
+  1474→        indicator.title = 'No LLM provider selected\nClick to choose a provider';
+  1475→      } else if (safePct === 0 && safeMsgCount === 0) {
+  1476→        indicator.title = `Context window ready (${formatNumber(safeTotal)} tokens available)\nClick to switch provider`;
+  1477→      } else {
+  1478→        indicator.title = `Context: ${formatNumber(safeUsed)} / ${formatNumber(safeTotal)} tokens (${safeMsgCount} messages)\nClick to switch provider`;
+  1479→      }
+  1480→    }
+  1481→  }
+  1482→
+  1483→  /**
+  1484→   * Update provider badge in toolbar
+  1485→   */
+  1486→  function updateProviderBadge(event) {
+  1487→    if (!window.LLMManagerComponent) return;
+  1488→    
+  1489→    const provider = LLMManagerComponent.getCurrentProvider();
+  1490→    
+  1491→    // Update name text
+  1492→    const nameText = document.getElementById('provider-name-text');
+  1493→    if (nameText && provider) {
+  1494→      nameText.textContent = provider.name.length > 15 
+  1495→        ? provider.name.substring(0, 13) + '...' 
+  1496→        : provider.name;
+  1497→    }
+  1498→    
+  1499→    // Update dot color
+  1500→    const dot = document.getElementById('provider-dot');
+  1501→    if (dot && provider) {
+  1502→      dot.style.setProperty('--provider-color', provider.color);
+  1503→      dot.style.backgroundColor = provider.color;
+  1504→      
+  1505→      // Check if rate limited
+  1506→      if (LLMManagerComponent.isRateLimited(provider.id)) {
+  1507→        dot.classList.add('rate-limited');
+  1508→      } else {
+  1509→        dot.classList.remove('rate-limited');
+  1510→      }
+  1511→    }
+  1512→    
+  1513→    // Update button title
+  1514→    const btn = document.getElementById('llm-provider-btn');
+  1515→    if (btn && provider) {
+  1516→      btn.title = `Current: ${provider.name}\nContext: ${provider.contextWindow.toLocaleString()} tokens\nClick to switch provider`;
+  1517→    }
+  1518→    
+  1519→    // Also refresh context indicator since context window may have changed
+  1520→    updateContextWindowIndicator();
+  1521→  }
+  1522→
+  1523→  /**
+  1524→   * Handle rate limit event - show notification and optionally switcher
+  1525→   */
+  1526→  function handleRateLimitEvent(event) {
+  1527→    const { providerId, reason, details } = event.detail;
+  1528→    
+  1529→    console.warn(`Rate limit detected for provider: ${providerId}`, details);
+  1530→    
+  1531→    // Show toast notification
+  1532→    if (window.IDEUtils) {
+  1533→      IDEUtils.showToast(
+  1534→        '⚠️ Rate limit approaching - Consider switching providers',
+  1535→        'warning',
+  1536→        5000
+  1537→      );
+  1538→    }
+  1539→    
+  1540→    // Update provider badge to show rate limited state
+  1541→    updateProviderBadge(event);
+  1542→  }
+  1543→
+  1544→  /**
+  1545→   * Handle provider change from LLM Manager
+  1546→   */
+  1547→  function handleProviderChange(provider) {
+  1548→    console.log(`Provider changed to: ${provider?.name}`);
+  1549→    
+  1550→    // Could add logic here to reconfigure API endpoints
+  1551→    // For now, just log and update UI
+  1552→    
+  1553→    if (window.IDEUtils) {
+  1554→      IDEUtils.showToast(`Switched to ${provider?.name || 'unknown'}`, 'success', 3000);
+  1555→    }
+  1556→  }
+  1557→
+  1558→  /**
+  1559→   * Format number for display
+  1560→   */
+  1561→  function formatNumber(num) {
+  1562→    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+  1563→    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+  1564→    return num.toString();
+  1565→  }
+  1566→
+  1567→  // ============================================
+  1568→  // Progressive Loading Skeleton Reveal
+  1569→  // ============================================
+  1570→  
+  1571→  /**
+  1572→   * Setup listeners for progressive section loading
+  1573→   * Hides skeletons as each section's module loads (from index.js events)
+  1574→   * This provides visual feedback that sections are becoming ready
+  1575→   */
+  1576→  function setupProgressiveReveal() {
+  1577→    // Track which sections have been revealed
+  1578→    const revealedSections = new Set();
+  1579→    
+  1580→    /**
+  1581→     * Hide a specific skeleton with smooth transition
+  1582→     * @param {string} sectionId - The ID of the skeleton element
+  1583→     */
+  1584→    function revealSection(sectionId) {
+  1585→      if (revealedSections.has(sectionId)) return;
+  1586→      revealedSections.add(sectionId);
+  1587→      
+  1588→      const skeleton = document.getElementById(sectionId);
+  1589→      if (skeleton) {
+  1590→        // Add fade-out class (defined in CSS)
+  1591→        skeleton.classList.add('fade-out');
+  1592→        
+  1593→        // Remove from DOM after transition completes
+  1594→        setTimeout(() => {
+  1595→          if (skeleton.parentNode) {
+  1596→            skeleton.style.display = 'none';
+  1597→          }
+  1598→        }, 320);
+  1599→        
+  1600→        console.log(`[SBIDE] 🎬 Revealed section: ${sectionId}`);
+  1601→      }
+  1602→    }
+  1603→    
+  1604→    // Listen for section-ready events from barrel loader (index.js)
+  1605→    window.addEventListener('ide:section-ready', (event) => {
+  1606→      const { section, module, elapsed } = event.detail || {};
+  1607→      
+  1608→      // Map section names to their skeleton IDs
+  1609→      const sectionToSkeleton = {
+  1610→        'sidebar': 'sidebar-skeleton',
+  1611→        'chat': 'chat-skeleton',
+  1612→        'editor': 'editor-skeleton'
+  1613→      };
+  1614→      
+  1615→      const skeletonId = sectionToSkeleton[section];
+  1616→      if (skeletonId) {
+  1617→        revealSection(skeletonId);
+  1618→      }
+  1619→    });
+  1620→    
+  1621→    // Also listen for modules-ready as fallback (reveal all remaining)
+  1622→    window.addEventListener('ide:modules-ready', () => {
+  1623→      // Reveal any skeletons that haven't been revealed yet
+  1624→      ['sidebar-skeleton', 'chat-skeleton', 'editor-skeleton'].forEach(id => {
+  1625→        revealSection(id);
+  1626→      });
+  1627→    });
+  1628→    
+  1629→    console.log('[SBIDE] Progressive reveal setup complete');
+  1630→  }
+  1631→
+  1632→  // ============================================
+  1633→  // Boot
+  1634→  // ============================================
+  1635→  
+  1636→  // Setup progressive reveal early (before init completes)
+  1637→  setupProgressiveReveal();
+  1638→  
+  1639→  // Wait for DOM to be ready, then initialize
+  1640→  if (document.readyState === 'loading') {
+  1641→    document.addEventListener('DOMContentLoaded', initialize);
+  1642→  } else {
+  1643→    // DOM already ready
+  1644→    initialize();
+  1645→  }
+  1646→  
+  1647→  // Expose app state globally for debugging
+  1648→  window.IDEApp = AppState;
+  1649→
+  1650→})();
+  1651→

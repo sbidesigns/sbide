@@ -1,0 +1,1594 @@
+     1→/**
+     2→ * SBIDE — Connections Module
+     3→ * ---------------------------------------------------------------
+     4→ * Provides OAuth/PAT-style connections to HuggingFace and GitHub
+     5→ * directly from a static page. Tokens are stored in OPFS via
+     6→ * OfflineKit when available, falling back to localStorage with a
+     7→ * light obfuscation wrapper (NOT secure storage — explicit warning
+     8→ * is shown to the user in the modal).
+     9→ *
+    10→ * Public API (window.Connections):
+    11→ *   init()                          — wire up event listeners
+    12→ *   openModal()                     — show the connections modal
+    13→ *   closeModal()                    — hide the modal
+    14→ *   getStatus()                     — { huggingface, github } status objects
+    15→ *   isConnected(provider)           — bool
+    16→ *   listRepos(provider)             — array of repo summaries
+    17→ *   createRepo(provider, opts)      — create a new repo / space
+    18→ *   pushProject(provider, opts)     — push current IDE project to remote
+    19→ *   pullProject(provider, opts)     — pull remote repo into IDE as new project
+    20→ *   deleteRepo(provider, name)      — delete a remote repo (with confirm)
+    21→ *   disconnect(provider)            — revoke local token (does not call provider)
+    22→ *   onStatusChange(cb)              — subscribe to status changes
+    23→ */
+    24→
+    25→const Connections = (() => {
+    26→  'use strict';
+    27→
+    28→  // ============================================
+    29→  // Constants
+    30→  // ============================================
+    31→
+    32→  const PROVIDERS = {
+    33→    huggingface: {
+    34→      id: 'huggingface',
+    35→      name: 'HuggingFace',
+    36→      tokenHelp: 'https://huggingface.co/settings/tokens',
+    37→      tokenHint: 'Create a token with "Read" + "Write" permissions.',
+    38→      apiBase: 'https://huggingface.co/api',
+    39→      fileBase: 'https://huggingface.co',
+    40→      scopes: [], // HF tokens are scoped at creation time on the website
+    41→    },
+    42→    github: {
+    43→      id: 'github',
+    44→      name: 'GitHub',
+    45→      tokenHelp: 'https://github.com/settings/tokens/new?scopes=repo,read:user',
+    46→      tokenHint: 'Use a "Fine-grained" or "Classic" token with "repo" + "read:user" scopes.',
+    47→      apiBase: 'https://api.github.com',
+    48→      // For GitHub device flow (optional). If empty, only PAT input is offered.
+    49→      // The user can override this from inside the modal — value is persisted
+    50→      // to localStorage so they only need to enter it once.
+    51→      clientIdKey: 'connections:github-client-id',
+    52→      deviceClientIdDefault: '',
+    53→      scopes: ['repo', 'read:user'],
+    54→    }
+    55→  };
+    56→
+    57→  const STORAGE_KEYS = {
+    58→    huggingface: 'connections:hf-token',
+    59→    github: 'connections:gh-token',
+    60→    githubMeta: 'connections:gh-meta',
+    61→  };
+    62→
+    63→  // ============================================
+    64→  // State
+    65→  // ============================================
+    66→
+    67→  const state = {
+    68→    statusListeners: new Set(),
+    69→    status: {
+    70→      huggingface: { connected: false, username: null, name: null, avatar: null },
+    71→      github: { connected: false, username: null, name: null, avatar: null }
+    72→    },
+    73→    cache: {
+    74→      huggingface: { repos: null, fetchedAt: 0 },
+    75→      github: { repos: null, fetchedAt: 0 }
+    76→    }
+    77→  };
+    78→
+    79→  // ============================================
+    80→  // Logging / utils
+    81→  // ============================================
+    82→
+    83→  function log(...args) {
+    84→    try { console.log('[Connections]', ...args); } catch (e) {}
+    85→  }
+    86→  function warn(...args) {
+    87→    try { console.warn('[Connections]', ...args); } catch (e) {}
+    88→  }
+    89→  function err(...args) {
+    90→    try { console.error('[Connections]', ...args); } catch (e) {}
+    91→  }
+    92→
+    93→  // Lightweight XOR obfuscation. NOT secure — just prevents the token
+    94→  // from being trivially readable in localStorage. Real protection comes
+    95→  // from OPFS when available.
+    96→  const OBF_SALT = 'IDE-Conn-v1-salt';
+    97→  function obfuscate(str) {
+    98→    if (!str) return '';
+    99→    let out = '';
+   100→    for (let i = 0; i < str.length; i++) {
+   101→      out += String.fromCharCode(str.charCodeAt(i) ^ OBF_SALT.charCodeAt(i % OBF_SALT.length));
+   102→    }
+   103→    // base64 for safe storage
+   104→    return btoa(unescape(encodeURIComponent(out)));
+   105→  }
+   106→  function deobfuscate(b64) {
+   107→    if (!b64) return '';
+   108→    try {
+   109→      const str = decodeURIComponent(escape(atob(b64)));
+   110→      let out = '';
+   111→      for (let i = 0; i < str.length; i++) {
+   112→        out += String.fromCharCode(str.charCodeAt(i) ^ OBF_SALT.charCodeAt(i % OBF_SALT.length));
+   113→      }
+   114→      return out;
+   115→    } catch (e) {
+   116→      return '';
+   117→    }
+   118→  }
+   119→
+   120→  // ============================================
+   121→  // Token storage (OPFS via OfflineKit, fallback to localStorage)
+   122→  // ============================================
+   123→
+   124→  async function opfsAvailable() {
+   125→    return !!(window.OfflineKit && OfflineKit.opfsAvailable);
+   126→  }
+   127→
+   128→  async function opfsReadSecrets() {
+   129→    if (!await opfsAvailable()) return null;
+   130→    try {
+   131→      const raw = await OfflineKit.opfsRead('.secrets', 'connections.json');
+   132→      if (!raw) return {};
+   133→      return JSON.parse(raw);
+   134→    } catch (e) {
+   135→      warn('OPFS secrets read failed', e);
+   136→      return {};
+   137→    }
+   138→  }
+   139→
+   140→  async function opfsWriteSecrets(obj) {
+   141→    if (!await opfsAvailable()) return false;
+   142→    try {
+   143→      await OfflineKit.opfsWrite('.secrets', 'connections.json', JSON.stringify(obj, null, 2));
+   144→      return true;
+   145→    } catch (e) {
+   146→      warn('OPFS secrets write failed', e);
+   147→      return false;
+   148→    }
+   149→  }
+   150→
+   151→  async function getToken(provider) {
+   152→    const key = STORAGE_KEYS[provider];
+   153→    // Try OPFS first
+   154→    const secrets = await opfsReadSecrets();
+   155→    if (secrets && secrets[key]) {
+   156→      return deobfuscate(secrets[key]);
+   157→    }
+   158→    // Fallback localStorage
+   159→    const raw = localStorage.getItem(key);
+   160→    return raw ? deobfuscate(raw) : '';
+   161→  }
+   162→
+   163→  async function setToken(provider, token) {
+   164→    const key = STORAGE_KEYS[provider];
+   165→    const enc = obfuscate(token || '');
+   166→    // Always write to localStorage as a fallback (even if OPFS works)
+   167→    localStorage.setItem(key, enc);
+   168→    // And mirror to OPFS when available
+   169→    const secrets = await opfsReadSecrets() || {};
+   170→    secrets[key] = enc;
+   171→    await opfsWriteSecrets(secrets);
+   172→  }
+   173→
+   174→  async function clearToken(provider) {
+   175→    const key = STORAGE_KEYS[provider];
+   176→    localStorage.removeItem(key);
+   177→    const secrets = await opfsReadSecrets() || {};
+   178→    delete secrets[key];
+   179→    await opfsWriteSecrets(secrets);
+   180→  }
+   181→
+   182→  // ============================================
+   183→  // HTTP helpers
+   184→  // ============================================
+   185→
+   186→  async function httpFetch(url, opts = {}) {
+   187→    const res = await fetch(url, {
+   188→      ...opts,
+   189→      headers: {
+   190→        'Accept': 'application/json',
+   191→        ...(opts.headers || {})
+   192→      }
+   193→    });
+   194→    if (!res.ok) {
+   195→      let detail = '';
+   196→      try {
+   197→        const body = await res.json();
+   198→        detail = body?.error || body?.message || JSON.stringify(body).slice(0, 200);
+   199→      } catch (e) {
+   200→        try { detail = (await res.text()).slice(0, 200); } catch (_) {}
+   201→      }
+   202→      const e = new Error(`HTTP ${res.status} ${res.statusText}${detail ? ' — ' + detail : ''}`);
+   203→      e.status = res.status;
+   204→      e.body = detail;
+   205→      throw e;
+   206→    }
+   207→    const ct = res.headers.get('content-type') || '';
+   208→    if (ct.includes('application/json')) return res.json();
+   209→    if (ct.includes('text/')) return res.text();
+   210→    return res.arrayBuffer();
+   211→  }
+   212→
+   213→  // ============================================
+   214→  // HuggingFace client
+   215→  // ============================================
+   216→
+   217→  const HF = {
+   218→    async validate(token) {
+   219→      // Returns { name, fullname, avatar } on success
+   220→      const json = await httpFetch('https://huggingface.co/api/whoami-v2', {
+   221→        headers: { 'Authorization': `Bearer ${token}` }
+   222→      });
+   223→      return {
+   224→        username: json.name,
+   225→        name: json.fullname || json.name,
+   226→        avatar: json.avatarUrl || null,
+   227→        orgs: (json.orgs || []).map(o => o.name)
+   228→      };
+   229→    },
+   230→
+   231→    async listRepos(token, username) {
+   232→      // We list models + spaces + datasets the user owns.
+   233→      const [models, spaces, datasets] = await Promise.all([
+   234→        httpFetch(`https://huggingface.co/api/models?author=${encodeURIComponent(username)}&limit=200`, {
+   235→          headers: { 'Authorization': `Bearer ${token}` }
+   236→        }),
+   237→        httpFetch(`https://huggingface.co/api/spaces?author=${encodeURIComponent(username)}&limit=200`, {
+   238→          headers: { 'Authorization': `Bearer ${token}` }
+   239→        }),
+   240→        httpFetch(`https://huggingface.co/api/datasets?author=${encodeURIComponent(username)}&limit=200`, {
+   241→          headers: { 'Authorization': `Bearer ${token}` }
+   242→        })
+   243→      ]);
+   244→      const map = (arr, type) => arr.map(r => ({
+   245→        provider: 'huggingface',
+   246→        type,                                  // 'model' | 'space' | 'dataset'
+   247→        id: r.id,                              // "user/repo"
+   248→        name: r.id,
+   249→        private: r.private,
+   250→        url: `https://huggingface.co/${r.id}`,
+   251→        updatedAt: r.lastModified || r.createdAt || null,
+   252→        description: r.tags?.join(', ') || null,
+   253→        raw: r
+   254→      }));
+   255→      return [...map(models, 'model'), ...map(spaces, 'space'), ...map(datasets, 'dataset')];
+   256→    },
+   257→
+   258→    async createRepo(token, { name, type = 'model', private: isPrivate = false, description = '' }) {
+   259→      // POST /api/repos/create
+   260→      // Body: { type, name, private, ... }
+   261→      // 'name' here is just the repo slug (no namespace) — the API attaches the current user.
+   262→      return httpFetch('https://huggingface.co/api/repos/create', {
+   263→        method: 'POST',
+   264→        headers: {
+   265→          'Authorization': `Bearer ${token}`,
+   266→          'Content-Type': 'application/json'
+   267→        },
+   268→        body: JSON.stringify({ type, name, private: isPrivate, description })
+   269→      });
+   270→    },
+   271→
+   272→    async listFiles(token, repoId, type = 'model', revision = 'main') {
+   273→      // GET /api/{type}/{repo}/tree/{revision}?recursive=true
+   274→      const url = `https://huggingface.co/api/${type}/${repoId}/tree/${revision}?recursive=true`;
+   275→      return httpFetch(url, {
+   276→        headers: { 'Authorization': `Bearer ${token}` }
+   277→      });
+   278→    },
+   279→
+   280→    async downloadFile(token, repoId, type, path, revision = 'main') {
+   281→      // GET /{repo}/resolve/{rev}/{path}
+   282→      const url = `https://huggingface.co/${repoId}/resolve/${revision}/${path.split('/').map(encodeURIComponent).join('/')}`;
+   283→      const res = await fetch(url, {
+   284→        headers: { 'Authorization': `Bearer ${token}` }
+   285→      });
+   286→      if (!res.ok) throw new Error(`Failed to download ${path}: ${res.status}`);
+   287→      return await res.text();
+   288→    },
+   289→
+   290→    async uploadFile(token, repoId, type, path, content, revision = 'main', commitMsg = null) {
+   291→      // PUT /api/{type}/{repo}/upload/{revision}/{path}
+   292→      // Body: raw bytes (use Blob for binary)
+   293→      const url = `https://huggingface.co/api/${type}/${repoId}/upload/${revision}/${path.split('/').map(encodeURIComponent).join('/')}`;
+   294→      const isText = typeof content === 'string';
+   295→      const body = isText ? content : content;
+   296→      return httpFetch(url, {
+   297→        method: 'PUT',
+   298→        headers: {
+   299→          'Authorization': `Bearer ${token}`,
+   300→          'Content-Type': 'application/octet-stream',
+   301→          ...(commitMsg ? { 'X-Commit-Message': commitMsg } : {})
+   302→        },
+   303→        body
+   304→      });
+   305→    },
+   306→
+   307→    async deleteFile(token, repoId, type, path, revision = 'main') {
+   308→      const url = `https://huggingface.co/api/${type}/${repoId}/delete/${revision}/${path.split('/').map(encodeURIComponent).join('/')}`;
+   309→      return httpFetch(url, {
+   310→        method: 'DELETE',
+   311→        headers: { 'Authorization': `Bearer ${token}` }
+   312→      });
+   313→    },
+   314→
+   315→    async deleteRepo(token, repoId, type) {
+   316→      // DELETE /api/{type}/{repo}/delete
+   317→      const url = `https://huggingface.co/api/${type}/${repoId}/delete`;
+   318→      return httpFetch(url, {
+   319→        method: 'DELETE',
+   320→        headers: { 'Authorization': `Bearer ${token}` }
+   321→      });
+   322→    }
+   323→  };
+   324→
+   325→  // ============================================
+   326→  // GitHub client
+   327→  // ============================================
+   328→
+   329→  const GH = {
+   330→    async validate(token) {
+   331→      const json = await httpFetch('https://api.github.com/user', {
+   332→        headers: { 'Authorization': `token ${token}` }
+   333→      });
+   334→      return {
+   335→        username: json.login,
+   336→        name: json.name || json.login,
+   337→        avatar: json.avatar_url,
+   338→        userId: json.id
+   339→      };
+   340→    },
+   341→
+   342→    async listRepos(token) {
+   343→      const json = await httpFetch('https://api.github.com/user/repos?sort=updated&per_page=100&type=owner', {
+   344→        headers: { 'Authorization': `token ${token}` }
+   345→      });
+   346→      return json.map(r => ({
+   347→        provider: 'github',
+   348→        type: r.full_name.includes('/') ? 'repo' : 'repo',
+   349→        id: r.full_name,
+   350→        name: r.name,
+   351→        full_name: r.full_name,
+   352→        private: r.private,
+   353→        url: r.html_url,
+   354→        updatedAt: r.updated_at,
+   355→        description: r.description,
+   356→        default_branch: r.default_branch,
+   357→        size: r.size,
+   358→        raw: r
+   359→      }));
+   360→    },
+   361→
+   362→    async createRepo(token, { name, private: isPrivate = false, description = '', autoInit = true }) {
+   363→      return httpFetch('https://api.github.com/user/repos', {
+   364→        method: 'POST',
+   365→        headers: {
+   366→          'Authorization': `token ${token}`,
+   367→          'Content-Type': 'application/json'
+   368→        },
+   369→        body: JSON.stringify({ name, private: isPrivate, description, auto_init: autoInit })
+   370→      });
+   371→    },
+   372→
+   373→    async listFiles(token, owner, repo, branch = 'main') {
+   374→      // Use git trees API to get the entire tree recursively
+   375→      const tree = await httpFetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`, {
+   376→        headers: { 'Authorization': `token ${token}` }
+   377→      });
+   378→      return (tree.tree || []).filter(n => n.type === 'blob').map(n => ({
+   379→        path: n.path,
+   380→        size: n.size,
+   381→        sha: n.sha
+   382→      }));
+   383→    },
+   384→
+   385→    async downloadFile(token, owner, repo, path, branch = 'main') {
+   386→      const json = await httpFetch(
+   387→        `https://api.github.com/repos/${owner}/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${branch}`,
+   388→        { headers: { 'Authorization': `token ${token}` } }
+   389→      );
+   390→      if (json.encoding === 'base64' && json.content) {
+   391→        // Handle UTF-8 properly
+   392→        const binary = atob(json.content.replace(/\n/g, ''));
+   393→        try {
+   394→          // Try UTF-8 decode
+   395→          const bytes = new Uint8Array(binary.length);
+   396→          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+   397→          return new TextDecoder('utf-8').decode(bytes);
+   398→        } catch (e) {
+   399→          return binary;
+   400→        }
+   401→      }
+   402→      return json.content || '';
+   403→    },
+   404→
+   405→    async uploadFile(token, owner, repo, path, content, branch = 'main', commitMsg = null, existingSha = null) {
+   406→      // PUT /repos/:owner/:repo/contents/:path
+   407→      // Body: { message, content (base64), branch, sha? }
+   408→      const isText = typeof content === 'string';
+   409→      let base64;
+   410→      if (isText) {
+   411→        const bytes = new TextEncoder().encode(content);
+   412→        let bin = '';
+   413→        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+   414→        base64 = btoa(bin);
+   415→      } else {
+   416→        // Blob/arraybuffer
+   417→        const buf = content instanceof ArrayBuffer ? content : await content.arrayBuffer();
+   418→        const bytes = new Uint8Array(buf);
+   419→        let bin = '';
+   420→        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+   421→        base64 = btoa(bin);
+   422→      }
+   423→      const body = {
+   424→        message: commitMsg || `Update ${path}`,
+   425→        content: base64,
+   426→        branch
+   427→      };
+   428→      if (existingSha) body.sha = existingSha;
+   429→      return httpFetch(
+   430→        `https://api.github.com/repos/${owner}/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`,
+   431→        {
+   432→          method: 'PUT',
+   433→          headers: {
+   434→            'Authorization': `token ${token}`,
+   435→            'Content-Type': 'application/json'
+   436→          },
+   437→          body: JSON.stringify(body)
+   438→        }
+   439→      );
+   440→    },
+   441→
+   442→    async getExistingSha(token, owner, repo, path, branch = 'main') {
+   443→      try {
+   444→        const json = await httpFetch(
+   445→          `https://api.github.com/repos/${owner}/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${branch}`,
+   446→          { headers: { 'Authorization': `token ${token}` } }
+   447→        );
+   448→        return json.sha || null;
+   449→      } catch (e) {
+   450→        return null; // probably doesn't exist
+   451→      }
+   452→    },
+   453→
+   454→    async deleteFile(token, owner, repo, path, sha, branch = 'main') {
+   455→      return httpFetch(
+   456→        `https://api.github.com/repos/${owner}/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`,
+   457→        {
+   458→          method: 'DELETE',
+   459→          headers: {
+   460→            'Authorization': `token ${token}`,
+   461→            'Content-Type': 'application/json'
+   462→          },
+   463→          body: JSON.stringify({ message: `Delete ${path}`, sha, branch })
+   464→        }
+   465→      );
+   466→    },
+   467→
+   468→    async deleteRepo(token, owner, repo) {
+   469→      return httpFetch(`https://api.github.com/repos/${owner}/${repo}`, {
+   470→        method: 'DELETE',
+   471→        headers: { 'Authorization': `token ${token}` }
+   472→      });
+   473→    },
+   474→
+   475→    // ----- Device Flow (optional, requires user-provided client_id) -----
+   476→
+   477→    async requestDeviceCode(clientId) {
+   478→      const params = new URLSearchParams({
+   479→        client_id: clientId,
+   480→        scope: PROVIDERS.github.scopes.join(' ')
+   481→      });
+   482→      const res = await fetch('https://github.com/login/device/code', {
+   483→        method: 'POST',
+   484→        headers: {
+   485→          'Accept': 'application/json',
+   486→          'Content-Type': 'application/x-www-form-urlencoded'
+   487→        },
+   488→        body: params.toString()
+   489→      });
+   490→      if (!res.ok) throw new Error(`Device code request failed: ${res.status}`);
+   491→      return res.json();
+   492→    },
+   493→
+   494→    async pollDeviceFlow(clientId, deviceCode, interval = 5) {
+   495→      const params = new URLSearchParams({
+   496→        client_id: clientId,
+   497→        device_code: deviceCode,
+   498→        grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
+   499→      });
+   500→      const res = await fetch('https://github.com/login/oauth/access_token', {
+   501→        method: 'POST',
+   502→        headers: {
+   503→          'Accept': 'application/json',
+   504→          'Content-Type': 'application/x-www-form-urlencoded'
+   505→        },
+   506→        body: params.toString()
+   507→      });
+   508→      const json = await res.json();
+   509→      return json; // { access_token, error, error_description, interval }
+   510→    }
+   511→  };
+   512→
+   513→  // ============================================
+   514→  // High-level operations
+   515→  // ============================================
+   516→
+   517→  async function connect(provider, token) {
+   518→    if (!token || !token.trim()) {
+   519→      throw new Error('Token is required');
+   520→    }
+   521→    const trimmed = token.trim();
+   522→    let info;
+   523→    if (provider === 'huggingface') {
+   524→      info = await HF.validate(trimmed);
+   525→    } else if (provider === 'github') {
+   526→      info = await GH.validate(trimmed);
+   527→    } else {
+   528→      throw new Error(`Unknown provider: ${provider}`);
+   529→    }
+   530→    await setToken(provider, trimmed);
+   531→    state.status[provider] = {
+   532→      connected: true,
+   533→      username: info.username,
+   534→      name: info.name,
+   535→      avatar: info.avatar
+   536→    };
+   537→    // Invalidate cache
+   538→    state.cache[provider] = { repos: null, fetchedAt: 0 };
+   539→    notifyStatusChange();
+   540→    log(`Connected to ${PROVIDERS[provider].name} as ${info.username}`);
+   541→    return info;
+   542→  }
+   543→
+   544→  async function disconnect(provider) {
+   545→    await clearToken(provider);
+   546→    state.status[provider] = { connected: false, username: null, name: null, avatar: null };
+   547→    state.cache[provider] = { repos: null, fetchedAt: 0 };
+   548→    notifyStatusChange();
+   549→    log(`Disconnected from ${PROVIDERS[provider].name}`);
+   550→  }
+   551→
+   552→  async function loadStatusFromStorage() {
+   553→    for (const p of Object.keys(PROVIDERS)) {
+   554→      const token = await getToken(p);
+   555→      if (token) {
+   556→        // We have a stored token. We trust it without re-validating (faster).
+   557→        // If it turns out invalid, the next API call will surface a 401 and we can
+   558→        // disconnect then.
+   559→        const meta = JSON.parse(localStorage.getItem(STORAGE_KEYS.githubMeta) || '{}');
+   560→        if (p === 'github' && meta.username) {
+   561→          state.status.github = { connected: true, username: meta.username, name: meta.name, avatar: meta.avatar };
+   562→        } else {
+   563→          // For HF, we don't cache user info — flag as connected but unknown username.
+   564→          // The listRepos call will reveal the username.
+   565→          state.status[p] = { connected: true, username: null, name: null, avatar: null };
+   566→        }
+   567→      }
+   568→    }
+   569→    notifyStatusChange();
+   570→  }
+   571→
+   572→  async function listRepos(provider, { force = false } = {}) {
+   573→    const token = await getToken(provider);
+   574→    if (!token) throw new Error(`Not connected to ${PROVIDERS[provider].name}`);
+   575→    const cache = state.cache[provider];
+   576→    const now = Date.now();
+   577→    const TTL = 60 * 1000; // 1 minute
+   578→    if (!force && cache.repos && (now - cache.fetchedAt) < TTL) {
+   579→      return cache.repos;
+   580→    }
+   581→    let repos;
+   582→    if (provider === 'huggingface') {
+   583→      // If we don't know the username yet, validate now to get it
+   584→      if (!state.status.huggingface.username) {
+   585→        const info = await HF.validate(token);
+   586→        state.status.huggingface = { connected: true, ...info };
+   587→        notifyStatusChange();
+   588→      }
+   589→      repos = await HF.listRepos(token, state.status.huggingface.username);
+   590→    } else {
+   591→      repos = await GH.listRepos(token);
+   592→      // Cache user meta
+   593→      if (!state.status.github.username) {
+   594→        const info = await GH.validate(token);
+   595→        state.status.github = { connected: true, ...info };
+   596→        localStorage.setItem(STORAGE_KEYS.githubMeta, JSON.stringify(info));
+   597→        notifyStatusChange();
+   598→      }
+   599→    }
+   600→    state.cache[provider] = { repos, fetchedAt: now };
+   601→    return repos;
+   602→  }
+   603→
+   604→  async function createRepo(provider, opts) {
+   605→    const token = await getToken(provider);
+   606→    if (!token) throw new Error(`Not connected to ${PROVIDERS[provider].name}`);
+   607→    let result;
+   608→    if (provider === 'huggingface') {
+   609→      result = await HF.createRepo(token, opts);
+   610→    } else {
+   611→      result = await GH.createRepo(token, opts);
+   612→    }
+   613→    // Invalidate cache so next listRepos call refetches
+   614→    state.cache[provider] = { repos: null, fetchedAt: 0 };
+   615→    return result;
+   616→  }
+   617→
+   618→  async function deleteRepo(provider, repoId, opts = {}) {
+   619→    const token = await getToken(provider);
+   620→    if (!token) throw new Error(`Not connected to ${PROVIDERS[provider].name}`);
+   621→    if (provider === 'huggingface') {
+   622→      const type = opts.type || 'model';
+   623→      return HF.deleteRepo(token, repoId, type);
+   624→    } else {
+   625→      const [owner, repo] = repoId.split('/');
+   626→      return GH.deleteRepo(token, owner, repo);
+   627→    }
+   628→  }
+   629→
+   630→  /**
+   631→   * Push the current IDE project's files to a remote repo.
+   632→   * For HuggingFace: pushes to a model repo by default (or space/dataset if opts.type is set)
+   633→   * For GitHub: pushes to a regular repo (creates if missing).
+   634→   *
+   635→   * opts: { repoId, type?, branch?, commitMsg? }
+   636→   */
+   637→  async function pushProject(provider, opts) {
+   638→    const token = await getToken(provider);
+   639→    if (!token) throw new Error(`Not connected to ${PROVIDERS[provider].name}`);
+   640→
+   641→    // Get current IDE project + files
+   642→    const ideState = window.IDEState ? IDEState.getState() : null;
+   643→    if (!ideState || !ideState.currentProject) {
+   644→      throw new Error('No active project in the IDE. Open or create a project first.');
+   645→    }
+   646→    const projectName = ideState.currentProject.name;
+   647→    const files = await IDEStorage.Files.getByProject(projectName);
+   648→    const fileEntries = files.filter(f => f.type === 'file' && f.path);
+   649→
+   650→    if (fileEntries.length === 0) {
+   651→      throw new Error(`Project "${projectName}" has no files to push.`);
+   652→    }
+   653→
+   654→    let { repoId, branch = 'main', commitMsg = `Push from IDE — ${new Date().toISOString()}` } = opts;
+   655→
+   656→    if (provider === 'huggingface') {
+   657→      const type = opts.type || 'model';
+   658→      if (!repoId) {
+   659→        // Default to {username}/{projectName-slug}
+   660→        const username = state.status.huggingface.username;
+   661→        if (!username) throw new Error('HuggingFace username unknown — re-connect to refresh.');
+   662→        repoId = `${username}/${slugify(projectName)}`;
+   663→      }
+   664→      // Push each file
+   665→      const results = [];
+   666→      for (const f of fileEntries) {
+   667→        try {
+   668→          await HF.uploadFile(token, repoId, type, f.path, f.content || '', branch, commitMsg);
+   669→          results.push({ path: f.path, ok: true });
+   670→        } catch (e) {
+   671→          results.push({ path: f.path, ok: false, error: e.message });
+   672→        }
+   673→      }
+   674→      return { repoId, type, branch, pushed: results };
+   675→    } else {
+   676→      // GitHub
+   677→      if (!repoId) throw new Error('repoId required for GitHub push (use "owner/repo")');
+   678→      const [owner, repo] = repoId.split('/');
+   679→      if (!owner || !repo) throw new Error('repoId must be in "owner/repo" form');
+   680→      const results = [];
+   681→      for (const f of fileEntries) {
+   682→        try {
+   683→          const existingSha = await GH.getExistingSha(token, owner, repo, f.path, branch);
+   684→          await GH.uploadFile(token, owner, repo, f.path, f.content || '', branch, commitMsg, existingSha);
+   685→          results.push({ path: f.path, ok: true });
+   686→        } catch (e) {
+   687→          results.push({ path: f.path, ok: false, error: e.message });
+   688→        }
+   689→      }
+   690→      return { repoId, branch, pushed: results };
+   691→    }
+   692→  }
+   693→
+   694→  /**
+   695→   * Pull a remote repo into the IDE as a new project.
+   696→   * opts: { repoId, type?, branch?, projectName? }
+   697→   */
+   698→  async function pullProject(provider, opts) {
+   699→    const token = await getToken(provider);
+   700→    if (!token) throw new Error(`Not connected to ${PROVIDERS[provider].name}`);
+   701→
+   702→    let { repoId, branch = 'main', projectName } = opts;
+   703→    if (!repoId) throw new Error('repoId required');
+   704→
+   705→    if (provider === 'huggingface') {
+   706→      const type = opts.type || 'model';
+   707→      const tree = await HF.listFiles(token, repoId, type, branch);
+   708→      const files = (tree || []).filter(n => n.type === 'file');
+   709→      if (!projectName) projectName = repoId.split('/').pop();
+   710→
+   711→      // Create IDE project
+   712→      const existing = await IDEStorage.Projects.get(projectName);
+   713→      if (existing) {
+   714→        throw new Error(`Project "${projectName}" already exists. Pick a different name.`);
+   715→      }
+   716→      const project = await IDEStorage.Projects.create(projectName);
+   717→
+   718→      // Pull each file
+   719→      const pulled = [];
+   720→      for (const f of files) {
+   721→        try {
+   722→          const content = await HF.downloadFile(token, repoId, type, f.path, branch);
+   723→          await IDEStorage.Files.create({
+   724→            id: IDEStorage.generateId(),
+   725→            project: projectName,
+   726→            name: f.path.split('/').pop(),
+   727→            path: f.path,
+   728→            type: 'file',
+   729→            content,
+   730→            size: new Blob([content]).size,
+   731→            updatedAt: Date.now()
+   732→          });
+   733→          // Mirror to OfflineKit (OPFS)
+   734→          if (window.OfflineKit) {
+   735→            try { await OfflineKit.write(projectName, f.path, content); } catch (_) {}
+   736→          }
+   737→          pulled.push({ path: f.path, ok: true });
+   738→        } catch (e) {
+   739→          pulled.push({ path: f.path, ok: false, error: e.message });
+   740→        }
+   741→      }
+   742→      await IDEStorage.Projects.updateFileCount(projectName);
+   743→      return { projectName, repoId, type, branch, pulled };
+   744→    } else {
+   745→      const [owner, repo] = repoId.split('/');
+   746→      if (!owner || !repo) throw new Error('repoId must be "owner/repo"');
+   747→      const files = await GH.listFiles(token, owner, repo, branch);
+   748→      if (!projectName) projectName = repo;
+   749→
+   750→      const existing = await IDEStorage.Projects.get(projectName);
+   751→      if (existing) {
+   752→        throw new Error(`Project "${projectName}" already exists. Pick a different name.`);
+   753→      }
+   754→      const project = await IDEStorage.Projects.create(projectName);
+   755→
+   756→      const pulled = [];
+   757→      for (const f of files) {
+   758→        // Skip large files > 1MB to avoid blowing up memory
+   759→        if (f.size > 1_000_000) {
+   760→          pulled.push({ path: f.path, ok: false, error: 'Skipped (>1MB)' });
+   761→          continue;
+   762→        }
+   763→        try {
+   764→          const content = await GH.downloadFile(token, owner, repo, f.path, branch);
+   765→          await IDEStorage.Files.create({
+   766→            id: IDEStorage.generateId(),
+   767→            project: projectName,
+   768→            name: f.path.split('/').pop(),
+   769→            path: f.path,
+   770→            type: 'file',
+   771→            content,
+   772→            size: new Blob([content]).size,
+   773→            updatedAt: Date.now()
+   774→          });
+   775→          if (window.OfflineKit) {
+   776→            try { await OfflineKit.write(projectName, f.path, content); } catch (_) {}
+   777→          }
+   778→          pulled.push({ path: f.path, ok: true });
+   779→        } catch (e) {
+   780→          pulled.push({ path: f.path, ok: false, error: e.message });
+   781→        }
+   782→      }
+   783→      await IDEStorage.Projects.updateFileCount(projectName);
+   784→      return { projectName, repoId, branch, pulled };
+   785→    }
+   786→  }
+   787→
+   788→  function slugify(name) {
+   789→    return String(name || '').toLowerCase()
+   790→      .replace(/[^a-z0-9-]+/g, '-')
+   791→      .replace(/^-+|-+$/g, '')
+   792→      .replace(/-{2,}/g, '-')
+   793→      .slice(0, 64);
+   794→  }
+   795→
+   796→  // ============================================
+   797→  // Status subscriptions
+   798→  // ============================================
+   799→
+   800→  function onStatusChange(cb) {
+   801→    state.statusListeners.add(cb);
+   802→    cb(getStatus());
+   803→    return () => state.statusListeners.delete(cb);
+   804→  }
+   805→
+   806→  function notifyStatusChange() {
+   807→    const s = getStatus();
+   808→    state.statusListeners.forEach(cb => {
+   809→      try { cb(s); } catch (e) { err('Status listener error', e); }
+   810→    });
+   811→    // Update the header button dot
+   812→    updateHeaderButton();
+   813→  }
+   814→
+   815→  function getStatus() {
+   816→    return JSON.parse(JSON.stringify(state.status));
+   817→  }
+   818→
+   819→  function isConnected(provider) {
+   820→    return !!(state.status[provider] && state.status[provider].connected);
+   821→  }
+   822→
+   823→  function updateHeaderButton() {
+   824→    const btn = document.getElementById('connections-btn');
+   825→    if (!btn) return;
+   826→    const dot = btn.querySelector('.connections-dot');
+   827→    if (!dot) return;
+   828→    const any = isConnected('huggingface') || isConnected('github');
+   829→    btn.classList.toggle('is-connected', any);
+   830→    if (dot) {
+   831→      dot.classList.toggle('active', any);
+   832→    }
+   833→  }
+   834→
+   835→  // ============================================
+   836→  // Modal UI
+   837→  // ============================================
+   838→
+   839→  function injectModal() {
+   840→    if (document.getElementById('connections-modal')) return;
+   841→
+   842→    const overlay = document.createElement('div');
+   843→    overlay.id = 'connections-modal';
+   844→    overlay.className = 'modal-overlay hidden connections-modal-overlay';
+   845→    overlay.setAttribute('role', 'dialog');
+   846→    overlay.setAttribute('aria-modal', 'true');
+   847→    overlay.setAttribute('aria-labelledby', 'connections-modal-title');
+   848→
+   849→    overlay.innerHTML = `
+   850→      <div class="modal connections-modal">
+   851→        <div class="modal-header">
+   852→          <h2 id="connections-modal-title" class="modal-title">
+   853→            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -3px; margin-right: 6px;">
+   854→              <path d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z"/>
+   855→            </svg>
+   856→            Connections
+   857→          </h2>
+   858→          <button id="connections-close-btn" class="icon-btn" aria-label="Close connections">
+   859→            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+   860→          </button>
+   861→        </div>
+   862→
+   863→        <div class="modal-body connections-modal-body">
+   864→          <!-- Tabs -->
+   865→          <div class="connections-tabs" role="tablist">
+   866→            <button class="connections-tab active" data-tab="huggingface" role="tab" aria-selected="true">
+   867→              <span class="provider-icon provider-icon-hf">🤗</span>
+   868→              HuggingFace
+   869→              <span class="connections-tab-status" data-status-for="huggingface"></span>
+   870→            </button>
+   871→            <button class="connections-tab" data-tab="github" role="tab" aria-selected="false">
+   872→              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="vertical-align: -2px;"><path d="M12 .3a12 12 0 00-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.9 1.2 1.9 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.7-.3-5.5-1.3-5.5-6 0-1.3.5-2.4 1.3-3.2-.2-.3-.6-1.6.1-3.2 0 0 1-.3 3.4 1.2a11.5 11.5 0 016 0c2.3-1.5 3.3-1.2 3.3-1.2.7 1.6.3 2.9.1 3.2.9.8 1.3 1.9 1.3 3.2 0 4.6-2.8 5.6-5.5 5.9.5.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0012 .3"/></svg>
+   873→              GitHub
+   874→              <span class="connections-tab-status" data-status-for="github"></span>
+   875→            </button>
+   876→          </div>
+   877→
+   878→          <!-- HuggingFace Panel -->
+   879→          <div id="conn-panel-huggingface" class="connections-panel active" data-panel="huggingface">
+   880→            <!-- Disconnected view -->
+   881→            <div class="conn-disconnected-view" data-view="disconnected">
+   882→              <div class="conn-provider-headline">
+   883→                <span class="provider-icon-lg">🤗</span>
+   884→                <div>
+   885→                  <h3>Connect to HuggingFace</h3>
+   886→                  <p>Upload, import, and manage your Spaces, models, and datasets — directly from the IDE.</p>
+   887→                </div>
+   888→              </div>
+   889→              <div class="form-group">
+   890→                <label class="form-label" for="hf-token-input">Access Token</label>
+   891→                <input type="password" id="hf-token-input" class="input" placeholder="hf_..." autocomplete="off" spellcheck="false" />
+   892→                <p class="form-hint">
+   893→                  Create a token at
+   894→                  <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener">huggingface.co/settings/tokens</a>
+   895→                  with "Read" + "Write" permissions.
+   896→                </p>
+   897→              </div>
+   898→              <div class="conn-security-note">
+   899→                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+   900→                <span>Stored locally in your browser (OPFS when available). Never sent anywhere except HuggingFace's API.</span>
+   901→              </div>
+   902→              <button id="hf-connect-btn" class="btn btn-primary" disabled>
+   903→                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+   904→                Connect
+   905→              </button>
+   906→            </div>
+   907→            <!-- Connected view -->
+   908→            <div class="conn-connected-view hidden" data-view="connected">
+   909→              <div class="conn-account-card">
+   910→                <img class="conn-avatar" data-avatar-for="huggingface" alt="" src="" />
+   911→                <div class="conn-account-info">
+   912→                  <div class="conn-account-name" data-name-for="huggingface"></div>
+   913→                  <div class="conn-account-username" data-username-for="huggingface"></div>
+   914→                </div>
+   915→                <button class="btn btn-ghost btn-xs" data-action="disconnect" data-provider="huggingface">Disconnect</button>
+   916→              </div>
+   917→              <div class="conn-repos-section">
+   918→                <div class="conn-repos-header">
+   919→                  <h4>Your Repositories</h4>
+   920→                  <div class="conn-repos-actions">
+   921→                    <button class="btn btn-ghost btn-xs" data-action="refresh" data-provider="huggingface" title="Refresh list">
+   922→                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+   923→                    </button>
+   924→                    <button class="btn btn-outline btn-xs" data-action="new-repo" data-provider="huggingface">+ New</button>
+   925→                  </div>
+   926→                </div>
+   927→                <div class="conn-repos-list" data-repos-for="huggingface"></div>
+   928→              </div>
+   929→              <div class="conn-push-current">
+   930→                <button class="btn btn-primary btn-sm" data-action="push-current" data-provider="huggingface">
+   931→                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+   932→                  Push Current Project
+   933→                </button>
+   934→              </div>
+   935→            </div>
+   936→          </div>
+   937→
+   938→          <!-- GitHub Panel -->
+   939→          <div id="conn-panel-github" class="connections-panel hidden" data-panel="github">
+   940→            <!-- Disconnected view -->
+   941→            <div class="conn-disconnected-view" data-view="disconnected">
+   942→              <div class="conn-provider-headline">
+   943→                <svg width="36" height="36" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .3a12 12 0 00-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.9 1.2 1.9 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.7-.3-5.5-1.3-5.5-6 0-1.3.5-2.4 1.3-3.2-.2-.3-.6-1.6.1-3.2 0 0 1-.3 3.4 1.2a11.5 11.5 0 016 0c2.3-1.5 3.3-1.2 3.3-1.2.7 1.6.3 2.9.1 3.2.9.8 1.3 1.9 1.3 3.2 0 4.6-2.8 5.6-5.5 5.9.5.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0012 .3"/></svg>
+   944→                <div>
+   945→                  <h3>Connect to GitHub</h3>
+   946→                  <p>Push, pull, and manage your repositories — directly from the IDE.</p>
+   947→                </div>
+   948→              </div>
+   949→
+   950→              <details class="conn-device-flow-toggle">
+   951→                <summary>Use Device Flow (real OAuth) instead of a token</summary>
+   952→                <div class="form-group" style="margin-top: 8px;">
+   953→                  <label class="form-label" for="gh-client-id-input">GitHub OAuth App Client ID</label>
+   954→                  <input type="text" id="gh-client-id-input" class="input" placeholder="Iv1.1234567890abcdef" autocomplete="off" spellcheck="false" />
+   955→                  <p class="form-hint">
+   956→                    Register an OAuth App at
+   957→                    <a href="https://github.com/settings/developers" target="_blank" rel="noopener">github.com/settings/developers</a>
+   958→                    (Authorization type: <em>Device flow</em>).
+   959→                  </p>
+   960→                  <button id="gh-device-start-btn" class="btn btn-outline btn-sm" disabled>Start Device Flow</button>
+   961→                  <div id="gh-device-status" class="conn-device-status hidden"></div>
+   962→                </div>
+   963→              </details>
+   964→
+   965→              <div class="form-group">
+   966→                <label class="form-label" for="gh-token-input">…or use a Personal Access Token</label>
+   967→                <input type="password" id="gh-token-input" class="input" placeholder="ghp_..." autocomplete="off" spellcheck="false" />
+   968→                <p class="form-hint">
+   969→                  Create a token at
+   970→                  <a href="https://github.com/settings/tokens/new?scopes=repo,read:user" target="_blank" rel="noopener">github.com/settings/tokens</a>
+   971→                  with <code>repo</code> + <code>read:user</code> scopes.
+   972→                </p>
+   973→              </div>
+   974→              <div class="conn-security-note">
+   975→                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+   976→                <span>Stored locally in your browser (OPFS when available). Never sent anywhere except GitHub's API.</span>
+   977→              </div>
+   978→              <button id="gh-connect-btn" class="btn btn-primary" disabled>
+   979→                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+   980→                Connect
+   981→              </button>
+   982→            </div>
+   983→            <!-- Connected view -->
+   984→            <div class="conn-connected-view hidden" data-view="connected">
+   985→              <div class="conn-account-card">
+   986→                <img class="conn-avatar" data-avatar-for="github" alt="" src="" />
+   987→                <div class="conn-account-info">
+   988→                  <div class="conn-account-name" data-name-for="github"></div>
+   989→                  <div class="conn-account-username" data-username-for="github"></div>
+   990→                </div>
+   991→                <button class="btn btn-ghost btn-xs" data-action="disconnect" data-provider="github">Disconnect</button>
+   992→              </div>
+   993→              <div class="conn-repos-section">
+   994→                <div class="conn-repos-header">
+   995→                  <h4>Your Repositories</h4>
+   996→                  <div class="conn-repos-actions">
+   997→                    <button class="btn btn-ghost btn-xs" data-action="refresh" data-provider="github" title="Refresh list">
+   998→                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+   999→                    </button>
+  1000→                    <button class="btn btn-outline btn-xs" data-action="new-repo" data-provider="github">+ New</button>
+  1001→                  </div>
+  1002→                </div>
+  1003→                <div class="conn-repos-list" data-repos-for="github"></div>
+  1004→              </div>
+  1005→              <div class="conn-push-current">
+  1006→                <button class="btn btn-primary btn-sm" data-action="push-current" data-provider="github">
+  1007→                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+  1008→                  Push Current Project
+  1009→                </button>
+  1010→              </div>
+  1011→            </div>
+  1012→          </div>
+  1013→        </div>
+  1014→
+  1015→        <div class="modal-footer">
+  1016→          <button id="connections-done-btn" class="btn btn-primary">Done</button>
+  1017→        </div>
+  1018→      </div>
+  1019→    `;
+  1020→    document.body.appendChild(overlay);
+  1021→
+  1022→    // Wire events
+  1023→    wireModalEvents(overlay);
+  1024→  }
+  1025→
+  1026→  function wireModalEvents(overlay) {
+  1027→    // Close
+  1028→    overlay.querySelector('#connections-close-btn').addEventListener('click', closeModal);
+  1029→    overlay.querySelector('#connections-done-btn').addEventListener('click', closeModal);
+  1030→    overlay.addEventListener('click', (e) => {
+  1031→      if (e.target === overlay) closeModal();
+  1032→    });
+  1033→    document.addEventListener('keydown', function esc(e) {
+  1034→      if (e.key === 'Escape' && !overlay.classList.contains('hidden')) {
+  1035→        closeModal();
+  1036→      }
+  1037→    });
+  1038→
+  1039→    // Tabs
+  1040→    overlay.querySelectorAll('.connections-tab').forEach(btn => {
+  1041→      btn.addEventListener('click', () => {
+  1042→        const tab = btn.dataset.tab;
+  1043→        overlay.querySelectorAll('.connections-tab').forEach(b => {
+  1044→          const active = b === btn;
+  1045→          b.classList.toggle('active', active);
+  1046→          b.setAttribute('aria-selected', active ? 'true' : 'false');
+  1047→        });
+  1048→        overlay.querySelectorAll('.connections-panel').forEach(p => {
+  1049→          p.classList.toggle('active', p.dataset.panel === tab);
+  1050→          p.classList.toggle('hidden', p.dataset.panel !== tab);
+  1051→        });
+  1052→      });
+  1053→    });
+  1054→
+  1055→    // HF token input
+  1056→    const hfInput = overlay.querySelector('#hf-token-input');
+  1057→    const hfBtn = overlay.querySelector('#hf-connect-btn');
+  1058→    hfInput.addEventListener('input', () => {
+  1059→      hfBtn.disabled = !hfInput.value.trim();
+  1060→    });
+  1061→    hfInput.addEventListener('keydown', (e) => {
+  1062→      if (e.key === 'Enter' && hfInput.value.trim()) {
+  1063→        hfBtn.click();
+  1064→      }
+  1065→    });
+  1066→    hfBtn.addEventListener('click', async () => {
+  1067→      hfBtn.disabled = true;
+  1068→      const original = hfBtn.innerHTML;
+  1069→      hfBtn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;"></div> Connecting...';
+  1070→      try {
+  1071→        await connect('huggingface', hfInput.value.trim());
+  1072→        hfInput.value = '';
+  1073→        if (window.IDEUtils && IDEUtils.showToast) {
+  1074→          IDEUtils.showToast(`Connected to HuggingFace as ${state.status.huggingface.username}`, 'success');
+  1075→        }
+  1076→        renderConnectedView('huggingface');
+  1077→      } catch (e) {
+  1078→        err(e);
+  1079→        if (window.IDEUtils && IDEUtils.showToast) {
+  1080→          IDEUtils.showToast(`Failed: ${e.message}`, 'error', 8000);
+  1081→        }
+  1082→      } finally {
+  1083→        hfBtn.disabled = false;
+  1084→        hfBtn.innerHTML = original;
+  1085→      }
+  1086→    });
+  1087→
+  1088→    // GH token input
+  1089→    const ghInput = overlay.querySelector('#gh-token-input');
+  1090→    const ghBtn = overlay.querySelector('#gh-connect-btn');
+  1091→    ghInput.addEventListener('input', () => {
+  1092→      ghBtn.disabled = !ghInput.value.trim();
+  1093→    });
+  1094→    ghInput.addEventListener('keydown', (e) => {
+  1095→      if (e.key === 'Enter' && ghInput.value.trim()) {
+  1096→        ghBtn.click();
+  1097→      }
+  1098→    });
+  1099→    ghBtn.addEventListener('click', async () => {
+  1100→      ghBtn.disabled = true;
+  1101→      const original = ghBtn.innerHTML;
+  1102→      ghBtn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;"></div> Connecting...';
+  1103→      try {
+  1104→        await connect('github', ghInput.value.trim());
+  1105→        ghInput.value = '';
+  1106→        if (window.IDEUtils && IDEUtils.showToast) {
+  1107→          IDEUtils.showToast(`Connected to GitHub as ${state.status.github.username}`, 'success');
+  1108→        }
+  1109→        renderConnectedView('github');
+  1110→      } catch (e) {
+  1111→        err(e);
+  1112→        if (window.IDEUtils && IDEUtils.showToast) {
+  1113→          IDEUtils.showToast(`Failed: ${e.message}`, 'error', 8000);
+  1114→        }
+  1115→      } finally {
+  1116→        ghBtn.disabled = false;
+  1117→        ghBtn.innerHTML = original;
+  1118→      }
+  1119→    });
+  1120→
+  1121→    // GH device flow
+  1122→    const ghClientIdInput = overlay.querySelector('#gh-client-id-input');
+  1123→    const ghDeviceStartBtn = overlay.querySelector('#gh-device-start-btn');
+  1124→    // Restore saved client_id
+  1125→    ghClientIdInput.value = localStorage.getItem(PROVIDERS.github.clientIdKey) || '';
+  1126→    ghDeviceStartBtn.disabled = !ghClientIdInput.value.trim();
+  1127→    ghClientIdInput.addEventListener('input', () => {
+  1128→      const v = ghClientIdInput.value.trim();
+  1129→      ghDeviceStartBtn.disabled = !v;
+  1130→      if (v) localStorage.setItem(PROVIDERS.github.clientIdKey, v);
+  1131→    });
+  1132→    ghDeviceStartBtn.addEventListener('click', () => startGitHubDeviceFlow(ghClientIdInput.value.trim()));
+  1133→
+  1134→    // Action delegation for connected views
+  1135→    overlay.addEventListener('click', async (e) => {
+  1136→      const btn = e.target.closest('[data-action]');
+  1137→      if (!btn) return;
+  1138→      const action = btn.dataset.action;
+  1139→      const provider = btn.dataset.provider;
+  1140→      if (!provider) return;
+  1141→
+  1142→      if (action === 'disconnect') {
+  1143→        if (!confirm(`Disconnect from ${PROVIDERS[provider].name}? Your local token will be deleted.`)) return;
+  1144→        await disconnect(provider);
+  1145→        renderDisconnectedView(provider);
+  1146→        if (window.IDEUtils && IDEUtils.showToast) {
+  1147→          IDEUtils.showToast(`Disconnected from ${PROVIDERS[provider].name}`, 'info');
+  1148→        }
+  1149→      } else if (action === 'refresh') {
+  1150→        await refreshRepos(provider);
+  1151→      } else if (action === 'new-repo') {
+  1152→        showNewRepoForm(provider);
+  1153→      } else if (action === 'push-current') {
+  1154→        await pushCurrentProject(provider);
+  1155→      } else if (action === 'pull') {
+  1156→        const repoId = btn.dataset.repoId;
+  1157→        const type = btn.dataset.repoType;
+  1158→        await pullRepoIntoIDE(provider, repoId, type);
+  1159→      } else if (action === 'open') {
+  1160→        const url = btn.dataset.url;
+  1161→        if (url) window.open(url, '_blank', 'noopener');
+  1162→      } else if (action === 'delete-repo') {
+  1163→        const repoId = btn.dataset.repoId;
+  1164→        const type = btn.dataset.repoType;
+  1165→        if (!confirm(`Delete ${repoId}? This cannot be undone.`)) return;
+  1166→        try {
+  1167→          btn.disabled = true;
+  1168→          await deleteRepo(provider, repoId, { type });
+  1169→          if (window.IDEUtils && IDEUtils.showToast) {
+  1170→            IDEUtils.showToast(`Deleted ${repoId}`, 'success');
+  1171→          }
+  1172→          await refreshRepos(provider, { force: true });
+  1173→        } catch (e) {
+  1174→          if (window.IDEUtils && IDEUtils.showToast) {
+  1175→            IDEUtils.showToast(`Failed: ${e.message}`, 'error', 8000);
+  1176→          }
+  1177→          btn.disabled = false;
+  1178→        }
+  1179→      }
+  1180→    });
+  1181→  }
+  1182→
+  1183→  // ============================================
+  1184→  // Render helpers
+  1185→  // ============================================
+  1186→
+  1187→  function renderConnectedView(provider) {
+  1188→    const overlay = document.getElementById('connections-modal');
+  1189→    if (!overlay) return;
+  1190→    const panel = overlay.querySelector(`#conn-panel-${provider}`);
+  1191→    if (!panel) return;
+  1192→    const discView = panel.querySelector('[data-view="disconnected"]');
+  1193→    const connView = panel.querySelector('[data-view="connected"]');
+  1194→    discView.classList.add('hidden');
+  1195→    connView.classList.remove('hidden');
+  1196→    const s = state.status[provider];
+  1197→    const nameEl = connView.querySelector(`[data-name-for="${provider}"]`);
+  1198→    const userEl = connView.querySelector(`[data-username-for="${provider}"]`);
+  1199→    const avatarEl = connView.querySelector(`[data-avatar-for="${provider}"]`);
+  1200→    if (nameEl) nameEl.textContent = s.name || s.username || 'Connected';
+  1201→    if (userEl) userEl.textContent = s.username ? `@${s.username}` : '';
+  1202→    if (avatarEl && s.avatar) {
+  1203→      avatarEl.src = s.avatar;
+  1204→      avatarEl.style.display = '';
+  1205→    } else if (avatarEl) {
+  1206→      avatarEl.style.display = 'none';
+  1207→    }
+  1208→    updateTabStatus(provider);
+  1209→    refreshRepos(provider).catch(() => {});
+  1210→  }
+  1211→
+  1212→  function renderDisconnectedView(provider) {
+  1213→    const overlay = document.getElementById('connections-modal');
+  1214→    if (!overlay) return;
+  1215→    const panel = overlay.querySelector(`#conn-panel-${provider}`);
+  1216→    if (!panel) return;
+  1217→    const discView = panel.querySelector('[data-view="disconnected"]');
+  1218→    const connView = panel.querySelector('[data-view="connected"]');
+  1219→    discView.classList.remove('hidden');
+  1220→    connView.classList.add('hidden');
+  1221→    updateTabStatus(provider);
+  1222→  }
+  1223→
+  1224→  function updateTabStatus(provider) {
+  1225→    const overlay = document.getElementById('connections-modal');
+  1226→    if (!overlay) return;
+  1227→    const badge = overlay.querySelector(`[data-status-for="${provider}"]`);
+  1228→    if (!badge) return;
+  1229→    const connected = isConnected(provider);
+  1230→    badge.classList.toggle('connected', connected);
+  1231→    badge.textContent = connected ? '●' : '';
+  1232→    badge.title = connected ? 'Connected' : 'Not connected';
+  1233→  }
+  1234→
+  1235→  async function refreshRepos(provider, { force = false } = {}) {
+  1236→    const overlay = document.getElementById('connections-modal');
+  1237→    if (!overlay) return;
+  1238→    const list = overlay.querySelector(`[data-repos-for="${provider}"]`);
+  1239→    if (!list) return;
+  1240→    list.innerHTML = '<div class="conn-repos-loading"><div class="spinner"></div><span>Loading repositories...</span></div>';
+  1241→    try {
+  1242→      const repos = await listRepos(provider, { force });
+  1243→      renderRepoList(provider, list, repos);
+  1244→    } catch (e) {
+  1245→      if (e.status === 401 || e.message.includes('401')) {
+  1246→        // Token invalid — disconnect
+  1247→        await disconnect(provider);
+  1248→        renderDisconnectedView(provider);
+  1249→        if (window.IDEUtils && IDEUtils.showToast) {
+  1250→          IDEUtils.showToast('Token invalid or expired. Please reconnect.', 'warning', 6000);
+  1251→        }
+  1252→      } else {
+  1253→        list.innerHTML = `<div class="conn-repos-empty">Failed to load: ${escapeHtml(e.message)}</div>`;
+  1254→      }
+  1255→    }
+  1256→  }
+  1257→
+  1258→  function renderRepoList(provider, container, repos) {
+  1259→    if (!repos || repos.length === 0) {
+  1260→      container.innerHTML = '<div class="conn-repos-empty">No repositories found.</div>';
+  1261→      return;
+  1262→    }
+  1263→    container.innerHTML = repos.map(r => {
+  1264→      const typeLabel = provider === 'huggingface' ? r.type : 'repo';
+  1265→      const privateLabel = r.private ? '<span class="badge badge-warning">private</span>' : '';
+  1266→      const updated = r.updatedAt ? formatRelative(r.updatedAt) : '';
+  1267→      return `
+  1268→        <div class="conn-repo-item">
+  1269→          <div class="conn-repo-main">
+  1270→            <div class="conn-repo-title">
+  1271→              <span class="badge badge-outline">${escapeHtml(typeLabel)}</span>
+  1272→              ${privateLabel}
+  1273→              <span class="conn-repo-name">${escapeHtml(r.id || r.name)}</span>
+  1274→            </div>
+  1275→            <div class="conn-repo-meta">
+  1276→              ${updated ? `<span>Updated ${escapeHtml(updated)}</span>` : ''}
+  1277→              ${r.size ? `<span>${formatSize(r.size)}</span>` : ''}
+  1278→            </div>
+  1279→          </div>
+  1280→          <div class="conn-repo-actions">
+  1281→            <button class="btn btn-outline btn-xs" data-action="pull" data-provider="${provider}" data-repo-id="${escapeHtml(r.id)}" data-repo-type="${escapeHtml(r.type || 'model')}" title="Import into IDE">
+  1282→              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+  1283→              Import
+  1284→            </button>
+  1285→            <button class="btn btn-ghost btn-xs" data-action="open" data-url="${escapeHtml(r.url)}" title="Open in browser">
+  1286→              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+  1287→            </button>
+  1288→            <button class="btn btn-ghost btn-xs conn-danger-btn" data-action="delete-repo" data-provider="${provider}" data-repo-id="${escapeHtml(r.id)}" data-repo-type="${escapeHtml(r.type || 'model')}" title="Delete repo">
+  1289→              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+  1290→            </button>
+  1291→          </div>
+  1292→        </div>
+  1293→      `;
+  1294→    }).join('');
+  1295→  }
+  1296→
+  1297→  function showNewRepoForm(provider) {
+  1298→    const name = prompt(`New ${PROVIDERS[provider].name} repository name:`, 'my-new-project');
+  1299→    if (!name) return;
+  1300→    const isPrivate = confirm('Make this repository private? Click OK for private, Cancel for public.');
+  1301→    const description = prompt('Short description (optional):', '') || '';
+  1302→    (async () => {
+  1303→      try {
+  1304→        if (provider === 'huggingface') {
+  1305→          const type = prompt('Repo type — type "model", "space", or "dataset":', 'model');
+  1306→          if (!['model', 'space', 'dataset'].includes(type)) {
+  1307→            alert('Invalid type. Must be model, space, or dataset.');
+  1308→            return;
+  1309→          }
+  1310→          await createRepo('huggingface', { name: slugify(name), type, private: isPrivate, description });
+  1311→        } else {
+  1312→          await createRepo('github', { name: slugify(name), private: isPrivate, description });
+  1313→        }
+  1314→        if (window.IDEUtils && IDEUtils.showToast) {
+  1315→          IDEUtils.showToast(`Created ${name}`, 'success');
+  1316→        }
+  1317→        await refreshRepos(provider, { force: true });
+  1318→      } catch (e) {
+  1319→        if (window.IDEUtils && IDEUtils.showToast) {
+  1320→          IDEUtils.showToast(`Failed: ${e.message}`, 'error', 8000);
+  1321→        }
+  1322→      }
+  1323→    })();
+  1324→  }
+  1325→
+  1326→  async function pushCurrentProject(provider) {
+  1327→    const ideState = window.IDEState ? IDEState.getState() : null;
+  1328→    if (!ideState || !ideState.currentProject) {
+  1329→      if (window.IDEUtils && IDEUtils.showToast) {
+  1330→        IDEUtils.showToast('Open a project in the IDE first.', 'warning');
+  1331→      }
+  1332→      return;
+  1333→    }
+  1334→    let repoId;
+  1335→    if (provider === 'huggingface') {
+  1336→      const username = state.status.huggingface.username;
+  1337→      const suggested = username ? `${username}/${slugify(ideState.currentProject.name)}` : '';
+  1338→      repoId = prompt('HuggingFace repo ID (user/repo):', suggested);
+  1339→      if (!repoId) return;
+  1340→      const type = prompt('Repo type (model / space / dataset):', 'model');
+  1341→      if (!['model', 'space', 'dataset'].includes(type)) {
+  1342→        alert('Invalid type.');
+  1343→        return;
+  1344→      }
+  1345→      const commitMsg = prompt('Commit message (optional):', `Push ${ideState.currentProject.name} from IDE`) || undefined;
+  1346→      try {
+  1347→        if (window.IDEUtils && IDEUtils.showToast) {
+  1348→          IDEUtils.showToast('Pushing files...', 'info');
+  1349→        }
+  1350→        const result = await pushProject('huggingface', { repoId, type, commitMsg });
+  1351→        const ok = result.pushed.filter(p => p.ok).length;
+  1352→        const fail = result.pushed.filter(p => !p.ok).length;
+  1353→        if (window.IDEUtils && IDEUtils.showToast) {
+  1354→          IDEUtils.showToast(`Pushed ${ok} file(s)${fail ? `, ${fail} failed` : ''}.`, fail ? 'warning' : 'success', 6000);
+  1355→        }
+  1356→      } catch (e) {
+  1357→        if (window.IDEUtils && IDEUtils.showToast) {
+  1358→          IDEUtils.showToast(`Push failed: ${e.message}`, 'error', 8000);
+  1359→        }
+  1360→      }
+  1361→    } else {
+  1362→      const username = state.status.github.username;
+  1363→      const suggested = username ? `${username}/${slugify(ideState.currentProject.name)}` : '';
+  1364→      repoId = prompt('GitHub repo (owner/repo):', suggested);
+  1365→      if (!repoId) return;
+  1366→      const commitMsg = prompt('Commit message (optional):', `Push ${ideState.currentProject.name} from IDE`) || undefined;
+  1367→      try {
+  1368→        if (window.IDEUtils && IDEUtils.showToast) {
+  1369→          IDEUtils.showToast('Pushing files...', 'info');
+  1370→        }
+  1371→        const result = await pushProject('github', { repoId, commitMsg });
+  1372→        const ok = result.pushed.filter(p => p.ok).length;
+  1373→        const fail = result.pushed.filter(p => !p.ok).length;
+  1374→        if (window.IDEUtils && IDEUtils.showToast) {
+  1375→          IDEUtils.showToast(`Pushed ${ok} file(s)${fail ? `, ${fail} failed` : ''}.`, fail ? 'warning' : 'success', 6000);
+  1376→        }
+  1377→      } catch (e) {
+  1378→        if (window.IDEUtils && IDEUtils.showToast) {
+  1379→          IDEUtils.showToast(`Push failed: ${e.message}`, 'error', 8000);
+  1380→        }
+  1381→      }
+  1382→    }
+  1383→  }
+  1384→
+  1385→  async function pullRepoIntoIDE(provider, repoId, type) {
+  1386→    let projectName;
+  1387→    if (provider === 'huggingface') {
+  1388→      projectName = prompt(`Import ${repoId} as IDE project named:`, repoId.split('/').pop());
+  1389→    } else {
+  1390→      projectName = prompt(`Import ${repoId} as IDE project named:`, repoId.split('/').pop());
+  1391→    }
+  1392→    if (!projectName) return;
+  1393→    try {
+  1394→      if (window.IDEUtils && IDEUtils.showToast) {
+  1395→        IDEUtils.showToast('Importing files...', 'info');
+  1396→      }
+  1397→      const result = await pullProject(provider, { repoId, projectName, type });
+  1398→      const ok = result.pulled.filter(p => p.ok).length;
+  1399→      const fail = result.pulled.filter(p => !p.ok).length;
+  1400→      if (window.IDEUtils && IDEUtils.showToast) {
+  1401→        IDEUtils.showToast(`Imported ${ok} file(s) into "${projectName}"${fail ? `, ${fail} skipped` : ''}.`, fail ? 'warning' : 'success', 6000);
+  1402→      }
+  1403→      // Optionally switch to the new project
+  1404→      if (window.SidebarComponent && SidebarComponent.refresh) {
+  1405→        SidebarComponent.refresh();
+  1406→      }
+  1407→    } catch (e) {
+  1408→      if (window.IDEUtils && IDEUtils.showToast) {
+  1409→        IDEUtils.showToast(`Import failed: ${e.message}`, 'error', 8000);
+  1410→      }
+  1411→    }
+  1412→  }
+  1413→
+  1414→  async function startGitHubDeviceFlow(clientId) {
+  1415→    const overlay = document.getElementById('connections-modal');
+  1416→    if (!overlay) return;
+  1417→    const status = overlay.querySelector('#gh-device-status');
+  1418→    const startBtn = overlay.querySelector('#gh-device-start-btn');
+  1419→    status.classList.remove('hidden');
+  1420→    startBtn.disabled = true;
+  1421→    try {
+  1422→      const code = await GH.requestDeviceCode(clientId);
+  1423→      status.innerHTML = `
+  1424→        <div class="conn-device-active">
+  1425→          <p>1. Visit <a href="${code.verification_uri}" target="_blank" rel="noopener">${escapeHtml(code.verification_uri)}</a></p>
+  1426→          <p>2. Enter code: <code class="conn-device-code">${escapeHtml(code.user_code)}</code></p>
+  1427→          <p class="muted">Waiting for authorization...</p>
+  1428→        </div>
+  1429→      `;
+  1430→      const interval = (code.interval || 5) * 1000;
+  1431→      const expiresAt = Date.now() + (code.expires_in || 900) * 1000;
+  1432→      const poll = async () => {
+  1433→        if (Date.now() > expiresAt) {
+  1434→          status.innerHTML = '<p class="error">Device flow expired. Try again.</p>';
+  1435→          startBtn.disabled = false;
+  1436→          return;
+  1437→        }
+  1438→        try {
+  1439→          const r = await GH.pollDeviceFlow(clientId, code.device_code);
+  1440→          if (r.access_token) {
+  1441→            status.innerHTML = '<p class="success">Authorized! Connecting...</p>';
+  1442→            await connect('github', r.access_token);
+  1443→            status.classList.add('hidden');
+  1444→            if (window.IDEUtils && IDEUtils.showToast) {
+  1445→              IDEUtils.showToast(`Connected to GitHub as ${state.status.github.username}`, 'success');
+  1446→            }
+  1447→            renderConnectedView('github');
+  1448→            startBtn.disabled = false;
+  1449→            return;
+  1450→          }
+  1451→          if (r.error === 'authorization_pending') {
+  1452→            // Continue polling
+  1453→            setTimeout(poll, interval);
+  1454→          } else if (r.error === 'slow_down') {
+  1455→            setTimeout(poll, interval + 5000);
+  1456→          } else if (r.error === 'expired_token') {
+  1457→            status.innerHTML = '<p class="error">Code expired. Try again.</p>';
+  1458→            startBtn.disabled = false;
+  1459→          } else {
+  1460→            status.innerHTML = `<p class="error">${escapeHtml(r.error_description || r.error || 'Unknown error')}</p>`;
+  1461→            startBtn.disabled = false;
+  1462→          }
+  1463→        } catch (e) {
+  1464→          status.innerHTML = `<p class="error">${escapeHtml(e.message)}</p>`;
+  1465→          startBtn.disabled = false;
+  1466→        }
+  1467→      };
+  1468→      setTimeout(poll, interval);
+  1469→    } catch (e) {
+  1470→      status.innerHTML = `<p class="error">${escapeHtml(e.message)}</p>`;
+  1471→      startBtn.disabled = false;
+  1472→    }
+  1473→  }
+  1474→
+  1475→  // ============================================
+  1476→  // Modal open/close
+  1477→  // ============================================
+  1478→
+  1479→  function openModal() {
+  1480→    injectModal();
+  1481→    const overlay = document.getElementById('connections-modal');
+  1482→    overlay.classList.remove('hidden');
+  1483→    // Refresh both views to current state
+  1484→    for (const p of Object.keys(PROVIDERS)) {
+  1485→      if (isConnected(p)) {
+  1486→        renderConnectedView(p);
+  1487→      } else {
+  1488→        renderDisconnectedView(p);
+  1489→      }
+  1490→    }
+  1491→  }
+  1492→
+  1493→  function closeModal() {
+  1494→    const overlay = document.getElementById('connections-modal');
+  1495→    if (overlay) overlay.classList.add('hidden');
+  1496→  }
+  1497→
+  1498→  // ============================================
+  1499→  // Misc helpers
+  1500→  // ============================================
+  1501→
+  1502→  function escapeHtml(s) {
+  1503→    return String(s == null ? '' : s)
+  1504→      .replace(/&/g, '&amp;')
+  1505→      .replace(/</g, '&lt;')
+  1506→      .replace(/>/g, '&gt;')
+  1507→      .replace(/"/g, '&quot;')
+  1508→      .replace(/'/g, '&#39;');
+  1509→  }
+  1510→
+  1511→  function formatRelative(ts) {
+  1512→    if (!ts) return '';
+  1513→    const d = new Date(ts);
+  1514→    if (isNaN(d.getTime())) return '';
+  1515→    const now = Date.now();
+  1516→    const diff = now - d.getTime();
+  1517→    const mins = Math.floor(diff / 60000);
+  1518→    if (mins < 1) return 'just now';
+  1519→    if (mins < 60) return `${mins}m ago`;
+  1520→    const hours = Math.floor(mins / 60);
+  1521→    if (hours < 24) return `${hours}h ago`;
+  1522→    const days = Math.floor(hours / 24);
+  1523→    if (days < 30) return `${days}d ago`;
+  1524→    const months = Math.floor(days / 30);
+  1525→    if (months < 12) return `${months}mo ago`;
+  1526→    return `${Math.floor(months / 12)}y ago`;
+  1527→  }
+  1528→
+  1529→  function formatSize(bytes) {
+  1530→    if (bytes == null) return '';
+  1531→    if (bytes < 1024) return `${bytes} B`;
+  1532→    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  1533→    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  1534→    return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
+  1535→  }
+  1536→
+  1537→  // ============================================
+  1538→  // Initialization
+  1539→  // ============================================
+  1540→
+  1541→  async function init() {
+  1542→    if (window.__connectionsInit) return;
+  1543→    window.__connectionsInit = true;
+  1544→
+  1545→    log('Initializing...');
+  1546→
+  1547→    // Wire header button
+  1548→    const btn = document.getElementById('connections-btn');
+  1549→    if (btn) {
+  1550→      btn.addEventListener('click', openModal);
+  1551→    } else {
+  1552→      warn('Header button #connections-btn not found — modal can still be opened via Connections.openModal()');
+  1553→    }
+  1554→
+  1555→    // Load saved status
+  1556→    await loadStatusFromStorage();
+  1557→    updateHeaderButton();
+  1558→
+  1559→    log('Ready. Status:', getStatus());
+  1560→  }
+  1561→
+  1562→  // Auto-init on DOMContentLoaded
+  1563→  if (document.readyState === 'loading') {
+  1564→    document.addEventListener('DOMContentLoaded', init);
+  1565→  } else {
+  1566→    init();
+  1567→  }
+  1568→
+  1569→  // ============================================
+  1570→  // Public API
+  1571→  // ============================================
+  1572→
+  1573→  return {
+  1574→    init,
+  1575→    openModal,
+  1576→    closeModal,
+  1577→    getStatus,
+  1578→    isConnected,
+  1579→    onStatusChange,
+  1580→    // Storage
+  1581→    getToken, setToken, clearToken,
+  1582→    // Provider clients (for advanced use)
+  1583→    HF, GH,
+  1584→    // High-level ops
+  1585→    connect, disconnect,
+  1586→    listRepos, createRepo, deleteRepo,
+  1587→    pushProject, pullProject,
+  1588→    // Constants
+  1589→    PROVIDERS,
+  1590→  };
+  1591→})();
+  1592→
+  1593→window.Connections = Connections;
+  1594→
