@@ -1,0 +1,199 @@
+/home/z/my-project/public/js/app.js:885:      else if (status.llm?.type === 'webllm') parts.push('WebLLM ready (loads on first chat)');
+/home/z/my-project/public/js/api.js:225:            'instance in Settings, or (3) wait for OfflineKit\'s WebLLM to load.'
+/home/z/my-project/public/js/api.js:316:      // WebLLM / configured cloud-via-OfflineKit), stream its
+/home/z/my-project/public/js/api.js:326:          const usable = llm.type === 'ollama' || llm.type === 'webllm' || llm.type === 'cloud';
+/home/z/my-project/public/js/api.js:381:      '3. **Load WebLLM in-browser** — open the OfflineKit badge, click "Load WebLLM model". This downloads a small Llama model (~1GB, one-time) and runs it via WebGPU. No server required.',
+/home/z/my-project/public/js/offline-kit.js:12: *   4. WebLLM       — local LLM in browser via WebGPU (no install)
+/home/z/my-project/public/js/offline-kit.js:14: *   6. LLM router   — picks best available: ollama → webllm → cloud → queue
+/home/z/my-project/public/js/offline-kit.js:71:    activeLLM: null,          // {type: 'ollama'|'webllm'|'cloud'|'queued'|'none', name, model}
+/home/z/my-project/public/js/offline-kit.js:284:      // Need at least 20% headroom beyond model size (WebLLM needs working space)
+/home/z/my-project/public/js/offline-kit.js:366:   * Detects and auto-cleans stale/partial WebLLM downloads before attempting
+/home/z/my-project/public/js/offline-kit.js:371:   * 1. Check for 'offlinekit:webllm-downloading' flag in sessionStorage
+/home/z/my-project/public/js/offline-kit.js:393:      const downloadingFlag = sessionStorage.getItem('offlinekit:webllm-downloading');
+/home/z/my-project/public/js/offline-kit.js:406:          sessionStorage.removeItem('offlinekit:webllm-downloading');
+/home/z/my-project/public/js/offline-kit.js:425:                         localStorage.getItem('offlinekit:webllm-cached') === modelId;
+/home/z/my-project/public/js/offline-kit.js:432:            n.includes('webllm') || n.includes('mlc') || n.includes('workbox')
+/home/z/my-project/public/js/offline-kit.js:436:            // Model claims to be cached but no WebLLM caches exist = data was lost
+/home/z/my-project/public/js/offline-kit.js:444:            if (localStorage.getItem('offlinekit:webllm-cached') === modelId) {
+/home/z/my-project/public/js/offline-kit.js:445:              localStorage.removeItem('offlinekit:webllm-cached');
+/home/z/my-project/public/js/offline-kit.js:512:      sessionStorage.setItem('offlinekit:webllm-downloading', JSON.stringify({
+/home/z/my-project/public/js/offline-kit.js:521:      sessionStorage.removeItem('offlinekit:webllm-downloading');
+/home/z/my-project/public/js/offline-kit.js:530:      localStorage.setItem('offlinekit:webllm-cached-models', JSON.stringify(state.webLLMCachedModels));
+/home/z/my-project/public/js/offline-kit.js:538:      const saved = localStorage.getItem('offlinekit:webllm-cached-models');
+/home/z/my-project/public/js/offline-kit.js:557:      if (localStorage.getItem('offlinekit:webllm-cached') === modelId) {
+/home/z/my-project/public/js/offline-kit.js:558:        localStorage.removeItem('offlinekit:webllm-cached');
+/home/z/my-project/public/js/offline-kit.js:562:      log('Clearing WebLLM cache for model:', modelId);
+/home/z/my-project/public/js/offline-kit.js:564:      // === METHOD 1: Clear browser Cache API (where WebLLM stores model weights) ===
+/home/z/my-project/public/js/offline-kit.js:568:          // WebLLM uses caches with names like 'webllm-', 'mlc-', or workbox caches
+/home/z/my-project/public/js/offline-kit.js:569:          if (name.includes('webllm') || name.includes('mlc') || name.includes('workbox') || name.includes('cache')) {
+/home/z/my-project/public/js/offline-kit.js:579:      // === METHOD 2: Try WebLLM's own cleanup ===
+/home/z/my-project/public/js/offline-kit.js:581:        const webllmModule = await import('https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.9/+esm');
+/home/z/my-project/public/js/offline-kit.js:582:        if (webllmModule && typeof webllmModule.clearCache === 'function') {
+/home/z/my-project/public/js/offline-kit.js:583:          await webllmModule.clearCache();
+/home/z/my-project/public/js/offline-kit.js:584:          log('Cleared via WebLLM.clearCache()');
+/home/z/my-project/public/js/offline-kit.js:588:        log('WebLLM.clearCache() not available or failed:', e.message?.substring(0, 50));
+/home/z/my-project/public/js/offline-kit.js:591:      // === METHOD 3: Clear OPFS directory where WebLLM stores models ===
+/home/z/my-project/public/js/offline-kit.js:595:          await clearOPFSRecursively(root, ['webllm', 'cache', 'models', modelId.replace(/[^a-zA-Z0-9_-]/g, '_')]);
+/home/z/my-project/public/js/offline-kit.js:619:          if (db.name && (db.name.includes('webllm') || db.name.includes('cache') || 
+/home/z/my-project/public/js/offline-kit.js:630:      // === METHOD 5: Clear sessionStorage (WebLLM might use it) ===
+/home/z/my-project/public/js/offline-kit.js:635:          if (key && (key.includes('webllm') || key.includes('mlc') || key.includes('model'))) {
+/home/z/my-project/public/js/offline-kit.js:701:          entry.name.startsWith('webllm') || 
+/home/z/my-project/public/js/offline-kit.js:838:    localStorage.setItem('offlinekit:webllm-model', modelId);
+/home/z/my-project/public/js/offline-kit.js:839:    localStorage.setItem('offlinekit:webllm-is-custom', state.webLLMIsCustom);
+/home/z/my-project/public/js/offline-kit.js:843:      localStorage.setItem('offlinekit:webllm-cached', modelId);
+/home/z/my-project/public/js/offline-kit.js:1215:  // Layer 5: WebLLM (in-browser LLM via WebGPU)
+/home/z/my-project/public/js/offline-kit.js:1217:  function isWebLLMSupported() { return state.webLLMSupported; }
+/home/z/my-project/public/js/offline-kit.js:1219:  async function loadWebLLM(modelId) {
+/home/z/my-project/public/js/offline-kit.js:1231:        log('Loading WebLLM library + model:', modelId || state.webLLMModelId);
+/home/z/my-project/public/js/offline-kit.js:1232:        const webllm = await import('https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.9/+esm');
+/home/z/my-project/public/js/offline-kit.js:1234:        // Validate that WebLLM's config loaded properly
+/home/z/my-project/public/js/offline-kit.js:1235:        if (!webllm.prebuiltAppConfig?.model_list) {
+/home/z/my-project/public/js/offline-kit.js:1236:          throw new Error('WebLLM config failed to load (prebuiltAppConfig undefined). This usually means the CDN is blocked or having issues. Try refreshing or check your network.');
+/home/z/my-project/public/js/offline-kit.js:1239:        log(`WebLLM loaded OK. Available models: ${webllm.prebuiltAppConfig.model_list.length} models in config`);
+/home/z/my-project/public/js/offline-kit.js:1241:        const engine = await webllm.CreateMLCEngine(
+/home/z/my-project/public/js/offline-kit.js:1245:              log(`WebLLM: ${(p.progress * 100).toFixed(1)}% — ${p.text}`);
+/home/z/my-project/public/js/offline-kit.js:1251:        log('WebLLM ready');
+/home/z/my-project/public/js/offline-kit.js:1255:        err('WebLLM load failed:', e);
+/home/z/my-project/public/js/offline-kit.js:1265:    const engine = await loadWebLLM(opts.model);
+/home/z/my-project/public/js/offline-kit.js:1431:    // 2. WebLLM if supported and engine is loaded (or loadable)
+/home/z/my-project/public/js/offline-kit.js:1433:      state.activeLLM = { type: 'webllm', name: 'WebLLM', model: state.webLLMModelId };
+/home/z/my-project/public/js/offline-kit.js:1434:      return 'webllm';
+/home/z/my-project/public/js/offline-kit.js:1452:    if (backend === 'webllm' || state.webLLMSupported) {
+/home/z/my-project/public/js/offline-kit.js:1454:      catch (e) { warn('WebLLM failed, falling through:', e.message); }
+/home/z/my-project/public/js/offline-kit.js:1544:    // Show ORANGE pulsing dot only when WebLLM is actively downloading (not just supported)
+/home/z/my-project/public/js/offline-kit.js:1553:    else if (state.webLLMLoading && !state.webLLMEngine) label = `WebLLM · ${state.webLLMProgress.toFixed(0)}%`;
+/home/z/my-project/public/js/offline-kit.js:1554:    else if (state.webLLMEngine) label = `Local · WebLLM ✓`;  // Green = loaded
+/home/z/my-project/public/js/offline-kit.js:1589:          <span class="label">WebLLM (in-browser)</span>
+/home/z/my-project/public/js/offline-kit.js:1591:          ${status.webLLMSupported ? `<button id="ok-load-webllm">${state.webLLMEngine ? '✓ Loaded' : 'Load WebLLM Model'}</button>` : ''}
+/home/z/my-project/public/js/offline-kit.js:1593:        <div id="ok-webllm-progress" style="display:${(state.webLLMLoading && !state.webLLMEngine) ? 'block' : 'none'}; margin:6px 0; padding:10px 12px; background:#f0fdf4; border-radius:8px; font-size:13px; color:#166534;">
+/home/z/my-project/public/js/offline-kit.js:1595:            <span style="font-weight:600;">⬇️ ${state.webLLMProgressText || 'Downloading WebLLM model...'}</span>
+/home/z/my-project/public/js/offline-kit.js:1596:            <strong style="font-size:16px;color:#15803d;" id="ok-webllm-pct">${state.webLLMProgress.toFixed(0)}%</strong>
+/home/z/my-project/public/js/offline-kit.js:1598:          <div style="height:6px; background:#bbf7d0; border-radius:3px; overflow:hidden;margin-bottom:8px;"><div id="ok-webllm-bar" style="height:100%; width:${state.webLLMProgress}%; background:linear-gradient(90deg,#22c55e,#16a34a); border-radius:3px; transition:width 0.3s ease;"></div></div>
+/home/z/my-project/public/js/offline-kit.js:1600:            <span id="ok-webllm-speed" style="color:#4d7c0f;font-weight:500;">${state.webLLMSpeed > 0 ? formatSpeed(state.webLLMSpeed) : 'Calculating speed...'}</span>
+/home/z/my-project/public/js/offline-kit.js:1605:        <div id="ok-webllm-error" style="display:${state.webLLMLoadError ? 'block' : 'none'}; margin:6px 0; padding:10px 12px; background:#fef2f2; border-radius:8px; font-size:13px; color:#991b1b; border:1px solid #fecaca;">
+/home/z/my-project/public/js/offline-kit.js:1610:          <p id="ok-webllm-error-msg" style="margin:0 0 8px;font-size:12px;opacity:0.9;">${state.webLLMLoadError || 'An error occurred during download.'}</p>
+/home/z/my-project/public/js/offline-kit.js:1622:                🧹 Reset WebLLM Cache Only
+/home/z/my-project/public/js/offline-kit.js:1625:                ✅ Safe — only clears WebLLM model data, your projects/settings are preserved.
+/home/z/my-project/public/js/offline-kit.js:1663:        <div class="row"><span class="label">WebLLM model</span></div>
+/home/z/my-project/public/js/offline-kit.js:1664:        <select id="ok-webllm-model" style="width:100%;padding:6px 8px;border:1px solid var(--color-border,#e5e7eb);border-radius:6px;background:var(--color-card,#fff);color:var(--color-text,#1f2937);font-size:13px;">
+/home/z/my-project/public/js/offline-kit.js:1679:            <p style="margin:0 0 6px;color:#6b7280;font-size:11px;">How WebLLM stores model files. Change if download fails with "Cache.add" errors.</p>
+/home/z/my-project/public/js/offline-kit.js:1711:          <label style="font-size:11px;font-weight:600;color:#475569;display:block;margin-bottom:4px;">Custom WebLLM Model ID</label>
+/home/z/my-project/public/js/offline-kit.js:1712:          <input type="text" id="ok-webllm-model-custom" value="${state.webLLMIsCustom ? state.webLLMModelId : ''}" placeholder="e.g., Mistral-7B-Instruct-v0.3-q4f16_1-MLC" style="width:100%;padding:6px 8px;border:1px solid var(--color-border,#e5e7eb);border-radius:6px;font-size:12px;font-family:monospace;">
+/home/z/my-project/public/js/offline-kit.js:1713:          <p style="margin:4px 0 0;font-size:10px;color:#94a3b8;">Enter any MLC WebLLM-compatible model ID. Find models at <a href="https://mlc.ai/web-llm/" target="_blank" style="color:#3b82f6;">mlc.ai/web-llm</a></p>
+/home/z/my-project/public/js/offline-kit.js:1718:        <p class="hint">${state.webLLMEngine ? '✅ WebLLM model loaded and ready!' : 'Click "Load WebLLM Model" to download (one-time). Auto-cached afterwards.'}</p>
+/home/z/my-project/public/js/offline-kit.js:1789:    // Load WebLLM Model button handler
+/home/z/my-project/public/js/offline-kit.js:1790:    const loadBtn = modal.querySelector('#ok-load-webllm');
+/home/z/my-project/public/js/offline-kit.js:1807:        const targetModelId = modal.querySelector('#ok-webllm-model').value || state.webLLMModelId;
+/home/z/my-project/public/js/offline-kit.js:1837:              const speedEl = preflightModal.querySelector('#ok-webllm-speed');
+/home/z/my-project/public/js/offline-kit.js:1842:              const pct = preflightModal.querySelector('#ok-webllm-pct');
+/home/z/my-project/public/js/offline-kit.js:1856:                const speedEl2 = preflightModal.querySelector('#ok-webllm-speed');
+/home/z/my-project/public/js/offline-kit.js:1876:              const speedEl3 = preflightModal.querySelector('#ok-webllm-speed');
+/home/z/my-project/public/js/offline-kit.js:1903:                const btn = storageModal.querySelector('#ok-load-webllm');
+/home/z/my-project/public/js/offline-kit.js:1904:                const progressEl = storageModal.querySelector('#ok-webllm-progress');
+/home/z/my-project/public/js/offline-kit.js:1905:                const errorEl = storageModal.querySelector('#ok-webllm-error');
+/home/z/my-project/public/js/offline-kit.js:1906:                const errorMsgEl = storageModal.querySelector('#ok-webllm-error-msg');
+/home/z/my-project/public/js/offline-kit.js:1910:                  btn.textContent = 'Load WebLLM Model';
+/home/z/my-project/public/js/offline-kit.js:1936:              return; // Don't attempt to load WebLLM
+/home/z/my-project/public/js/offline-kit.js:1955:                const speedEl = curModal.querySelector('#ok-webllm-speed');
+/home/z/my-project/public/js/offline-kit.js:1960:                const pct = curModal.querySelector('#ok-webllm-pct');
+/home/z/my-project/public/js/offline-kit.js:1985:                    `   • Paste this URL and try loading WebLLM\n` +
+/home/z/my-project/public/js/offline-kit.js:2009:                    `You can try "🧹 Reset WebLLM Cache" again.\n\n` +
+/home/z/my-project/public/js/offline-kit.js:2023:                  const btn = curModal2.querySelector('#ok-load-webllm');
+/home/z/my-project/public/js/offline-kit.js:2024:                  const progressEl = curModal2.querySelector('#ok-webllm-progress');
+/home/z/my-project/public/js/offline-kit.js:2025:                  const errorEl = curModal2.querySelector('#ok-webllm-error');
+/home/z/my-project/public/js/offline-kit.js:2026:                  const errorMsgEl = curModal2.querySelector('#ok-webllm-error-msg');
+/home/z/my-project/public/js/offline-kit.js:2030:                    btn.textContent = 'Load WebLLM Model';
+/home/z/my-project/public/js/offline-kit.js:2058:                return; // Don't attempt to load WebLLM
+/home/z/my-project/public/js/offline-kit.js:2072:            // Import and load WebLLM with progress tracking in state
+/home/z/my-project/public/js/offline-kit.js:2073:            const webllm = await import('https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.9/+esm');
+/home/z/my-project/public/js/offline-kit.js:2080:            const engine = await webllm.CreateMLCEngine(
+/home/z/my-project/public/js/offline-kit.js:2136:                  log(`WebLLM: ${state.webLLMProgress.toFixed(1)}% — ${state.webLLMProgressText} @ ${formatSpeed(state.webLLMSpeed)}${state.webLLMUsingCache ? ' [CACHE]' : ''}`);
+/home/z/my-project/public/js/offline-kit.js:2141:                    const pct = curModal.querySelector('#ok-webllm-pct');
+/home/z/my-project/public/js/offline-kit.js:2142:                    const bar = curModal.querySelector('#ok-webllm-bar');
+/home/z/my-project/public/js/offline-kit.js:2143:                    const btn = curModal.querySelector('#ok-load-webllm');
+/home/z/my-project/public/js/offline-kit.js:2144:                    const speedEl = curModal.querySelector('#ok-webllm-speed');
+/home/z/my-project/public/js/offline-kit.js:2145:                    const cacheBadge = curModal.querySelector('#ok-webllm-progress .cache-badge');
+/home/z/my-project/public/js/offline-kit.js:2173:                      const flexDiv = curModal.querySelector('#ok-webllm-progress > div');
+/home/z/my-project/public/js/offline-kit.js:2214:            localStorage.setItem('offlinekit:webllm-cached', state.webLLMModelId);
+/home/z/my-project/public/js/offline-kit.js:2221:              const btn = curModal.querySelector('#ok-load-webllm');
+/home/z/my-project/public/js/offline-kit.js:2222:              const progressEl = curModal.querySelector('#ok-webllm-progress');
+/home/z/my-project/public/js/offline-kit.js:2234:                  hint.textContent = '✅ WebLLM model loaded and ready!';
+/home/z/my-project/public/js/offline-kit.js:2240:            err('WebLLM load failed:', e);
+/home/z/my-project/public/js/offline-kit.js:2358:                const errorMsgEl = retryModal.querySelector('#ok-webllm-error-msg');
+/home/z/my-project/public/js/offline-kit.js:2359:                const errorEl = retryModal.querySelector('#ok-webllm-error');
+/home/z/my-project/public/js/offline-kit.js:2364:                const btn = retryModal.querySelector('#ok-load-webllm');
+/home/z/my-project/public/js/offline-kit.js:2411:                  const b = m.querySelector('#ok-load-webllm');
+/home/z/my-project/public/js/offline-kit.js:2414:                    b.textContent = 'Load WebLLM Model';
+/home/z/my-project/public/js/offline-kit.js:2421:                  const tb = m.querySelector('#ok-load-webllm');
+/home/z/my-project/public/js/offline-kit.js:2440:                `WebLLM should resume from where it left off on retry.`
+/home/z/my-project/public/js/offline-kit.js:2473:                  `• Paste this URL and try loading WebLLM\n` +
+/home/z/my-project/public/js/offline-kit.js:2509:                    `• Try "🔄 Retry Download" (WebLLM may resume)\n` +
+/home/z/my-project/public/js/offline-kit.js:2536:                errorMsg = '⚠️ WebLLM\'s browser cache is corrupted.\n\nUse "🧹 Nuclear Clear" below — it only resets the WebLLM model cache, your projects and settings are safe.';
+/home/z/my-project/public/js/offline-kit.js:2542:                errorMsg = '⚠️ WebLLM file storage corrupted. Use "🧹 Nuclear Clear" below to reset the model cache only (your data is safe).';
+/home/z/my-project/public/js/offline-kit.js:2548:                // This is the WebLLM appConfig initialization failure!
+/home/z/my-project/public/js/offline-kit.js:2550:                errorMsg = `🔧 **WebLLM Library Initialization Failed**
+/home/z/my-project/public/js/offline-kit.js:2552:The WebLLM library loaded but its internal model configuration was missing. 
+/home/z/my-project/public/js/offline-kit.js:2581:              const btn = curModal.querySelector('#ok-load-webllm');
+/home/z/my-project/public/js/offline-kit.js:2582:              const progressEl = curModal.querySelector('#ok-webllm-progress');
+/home/z/my-project/public/js/offline-kit.js:2583:              const errorEl = curModal.querySelector('#ok-webllm-error');
+/home/z/my-project/public/js/offline-kit.js:2584:              const errorMsgEl = curModal.querySelector('#ok-webllm-error-msg');
+/home/z/my-project/public/js/offline-kit.js:2589:                btn.textContent = 'Load WebLLM Model';
+/home/z/my-project/public/js/offline-kit.js:2622:                      const modelSelect = curModal.querySelector('#ok-webllm-model');
+/home/z/my-project/public/js/offline-kit.js:2626:                        localStorage.setItem('offlinekit:webllm-model', state.webLLMModelId);
+/home/z/my-project/public/js/offline-kit.js:2630:                      const loadBtn2 = curModal.querySelector('#ok-load-webllm');
+/home/z/my-project/public/js/offline-kit.js:2654:        state.webLLMLoading.catch(err => err('WebLLM load error:', err));
+/home/z/my-project/public/js/offline-kit.js:2657:        const progressEl = document.getElementById('ok-webllm-progress');
+/home/z/my-project/public/js/offline-kit.js:2658:        const errorEl = document.getElementById('ok-webllm-error');
+/home/z/my-project/public/js/offline-kit.js:2711:          localStorage.setItem('offlinekit:webllm-cache-backend', selected || '');
+/home/z/my-project/public/js/offline-kit.js:2757:        if (confirm(`Clear ALL ${modelIds.length} cached model(s)?\n\nThis will remove all downloaded WebLLM data from browser storage.`)) {
+/home/z/my-project/public/js/offline-kit.js:2770:              await clearOPFSRecursively(root, ['webllm', 'cache', 'models']);
+/home/z/my-project/public/js/offline-kit.js:2808:        const loadBtn = modal.querySelector('#ok-load-webllm');
+/home/z/my-project/public/js/offline-kit.js:2819:        const currentModelId = modal.querySelector('#ok-webllm-model').value;
+/home/z/my-project/public/js/offline-kit.js:2850:          const loadBtn = modal.querySelector('#ok-load-webllm');
+/home/z/my-project/public/js/offline-kit.js:2861:          const errorEl = modal.querySelector('#ok-webllm-error-msg');
+/home/z/my-project/public/js/offline-kit.js:2869:    // === Surgical Nuclear Clear Button (ONLY clears WebLLM model cache, preserves user data!) ===
+/home/z/my-project/public/js/offline-kit.js:2873:        if (!confirm('🧹 Reset WebLLM Model Cache\n\n' +
+/home/z/my-project/public/js/offline-kit.js:2875:          '• WebLLM/MLC model weights from browser cache\n' +
+/home/z/my-project/public/js/offline-kit.js:2876:          '• WebLLM-specific OPFS storage\n' +
+/home/z/my-project/public/js/offline-kit.js:2877:          '• WebLLM IndexedDB entries\n\n' +
+/home/z/my-project/public/js/offline-kit.js:2884:        nuclearBtn.textContent = '🧹 Clearing WebLLM cache...';
+/home/z/my-project/public/js/offline-kit.js:2889:        // LAYER 1: Clear ONLY WebLLM-related CacheStorage entries
+/home/z/my-project/public/js/offline-kit.js:2895:            // Only target WebLLM/MLC/workbox caches, NOT general app caches
+/home/z/my-project/public/js/offline-kit.js:2896:            if (name.includes('webllm') || name.includes('mlc') || 
+/home/z/my-project/public/js/offline-kit.js:2918:        // LAYER 2: Clear ONLY WebLLM-related IndexedDB databases
+/home/z/my-project/public/js/offline-kit.js:2924:            if (db.name && (db.name.includes('webllm') || db.name.includes('mlc') || 
+/home/z/my-project/public/js/offline-kit.js:2935:        // LAYER 3: Clear ONLY WebLLM-related OPFS directories
+/home/z/my-project/public/js/offline-kit.js:2942:            // List top-level directories to identify which are WebLLM vs user data
+/home/z/my-project/public/js/offline-kit.js:2948:            const webllmDirs = ['webllm', 'mlc', 'cache', 'models', '.cache', 'wasm'];
+/home/z/my-project/public/js/offline-kit.js:2953:                // Only clear known WebLLM/cache directories
+/home/z/my-project/public/js/offline-kit.js:2954:                if (webllmDirs.some(d => nameLower === d || nameLower.startsWith(d + '-') || nameLower.startsWith(d + '_'))) {
+/home/z/my-project/public/js/offline-kit.js:2963:                  log('Preserving OPFS directory (not WebLLM):', entry.name);
+/home/z/my-project/public/js/offline-kit.js:2988:        // LAYER 4: Clear ONLY OfflineKit/WebLLM localStorage keys
+/home/z/my-project/public/js/offline-kit.js:2993:            'offlinekit:webllm-cached',
+/home/z/my-project/public/js/offline-kit.js:2994:            'offlinekit:webllm-cached-models',
+/home/z/my-project/public/js/offline-kit.js:2995:            'offlinekit:webllm-model',
+/home/z/my-project/public/js/offline-kit.js:2996:            'offlinekit:webllm-custom-model'
+/home/z/my-project/public/js/offline-kit.js:3021:        // LAYER 6: Try WebLLM's own cache clearing method
+/home/z/my-project/public/js/offline-kit.js:3024:          const webllmModule = await import('https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.9/+esm');
+/home/z/my-project/public/js/offline-kit.js:3025:          if (webllmModule && typeof webllmModule.clearCache === 'function') {
+/home/z/my-project/public/js/offline-kit.js:3026:            await webllmModule.clearCache();
+/home/z/my-project/public/js/offline-kit.js:3027:            cleanupResults.push('WebLLM.clearCache(): executed');
+/home/z/my-project/public/js/offline-kit.js:3030:          cleanupResults.push(`WebLLM.clearCache() failed: ${e.message?.substring(0, 50)}`); 
+/home/z/my-project/public/js/offline-kit.js:3056:          '• Every cache entry (not just WebLLM)\n' +
+/home/z/my-project/public/js/offline-kit.js:3150:        const errorMsgEl = modal.querySelector('#ok-webllm-error-msg');
+/home/z/my-project/public/js/offline-kit.js:3171:      const customInput = modal.querySelector('#ok-webllm-model-custom');
+/home/z/my-project/public/js/offline-kit.js:3177:        state.webLLMModelId = modal.querySelector('#ok-webllm-model').value || state.webLLMModelId;
+/home/z/my-project/public/js/offline-kit.js:3188:      localStorage.setItem('offlinekit:webllm-model', state.webLLMModelId);
+/home/z/my-project/public/js/offline-kit.js:3189:      localStorage.setItem('offlinekit:webllm-is-custom', state.webLLMIsCustom);
+/home/z/my-project/public/js/offline-kit.js:3218:      const savedModel = localStorage.getItem('offlinekit:webllm-model');
+/home/z/my-project/public/js/offline-kit.js:3221:      const savedCached = localStorage.getItem('offlinekit:webllm-cached');
+/home/z/my-project/public/js/offline-kit.js:3224:        log('WebLLM model previously cached:', savedCached);
+/home/z/my-project/public/js/offline-kit.js:3236:      const savedIsCustom = localStorage.getItem('offlinekit:webllm-is-custom');
+/home/z/my-project/public/js/offline-kit.js:3240:      const savedCacheBackend = localStorage.getItem('offlinekit:webllm-cache-backend');
+/home/z/my-project/public/js/offline-kit.js:3251:        // else: leave as null (use WebLLM default = "cache")
+/home/z/my-project/public/js/offline-kit.js:3311:    isWebLLMSupported, loadWebLLM,
+/home/z/my-project/public/js/highlight.min.js:1041:const n=e.regex,t=e.COMMENT("--","$"),a=["true","false","unknown"],i=["bigint","binary","blob","boolean","char","character","clob","date","dec","decfloat","decimal","float","int","integer","interval","nchar","nclob","national","numeric","real","row","smallint","time","timestamp","varchar","varying","varbinary"],r=["abs","acos","array_agg","asin","atan","avg","cast","ceil","ceiling","coalesce","corr","cos","cosh","count","covar_pop","covar_samp","cume_dist","dense_rank","deref","element","exp","extract","first_value","floor","json_array","json_arrayagg","json_exists","json_object","json_objectagg","json_query","json_table","json_table_primitive","json_value","lag","last_value","lead","listagg","ln","log","log10","lower","max","min","mod","nth_value","ntile","nullif","percent_rank","percentile_cont","percentile_disc","position","position_regex","power","rank","regr_avgx","regr_avgy","regr_count","regr_intercept","regr_r2","regr_slope","regr_sxx","regr_sxy","regr_syy","row_number","sin","sinh","sqrt","stddev_pop","stddev_samp","substring","substring_regex","sum","tan","tanh","translate","translate_regex","treat","trim","trim_array","unnest","upper","value_of","var_pop","var_samp","width_bucket"],s=["create table","insert into","primary key","foreign key","not null","alter table","add constraint","grouping sets","on overflow","character set","respect nulls","ignore nulls","nulls first","nulls last","depth first","breadth first"],o=r,l=["abs","acos","all","allocate","alter","and","any","are","array","array_agg","array_max_cardinality","as","asensitive","asin","asymmetric","at","atan","atomic","authorization","avg","begin","begin_frame","begin_partition","between","bigint","binary","blob","boolean","both","by","call","called","cardinality","cascaded","case","cast","ceil","ceiling","char","char_length","character","character_length","check","classifier","clob","close","coalesce","collate","collect","column","commit","condition","connect","constraint","contains","convert","copy","corr","corresponding","cos","cosh","count","covar_pop","covar_samp","create","cross","cube","cume_dist","current","current_catalog","current_date","current_default_transform_group","current_path","current_role","current_row","current_schema","current_time","current_timestamp","current_path","current_role","current_transform_group_for_type","current_user","cursor","cycle","date","day","deallocate","dec","decimal","decfloat","declare","default","define","delete","dense_rank","deref","describe","deterministic","disconnect","distinct","double","drop","dynamic","each","element","else","empty","end","end_frame","end_partition","end-exec","equals","escape","every","except","exec","execute","exists","exp","external","extract","false","fetch","filter","first_value","float","floor","for","foreign","frame_row","free","from","full","function","fusion","get","global","grant","group","grouping","groups","having","hold","hour","identity","in","indicator","initial","inner","inout","insensitive","insert","int","integer","intersect","intersection","interval","into","is","join","json_array","json_arrayagg","json_exists","json_object","json_objectagg","json_query","json_table","json_table_primitive","json_value","lag","language","large","last_value","lateral","lead","leading","left","like","like_regex","listagg","ln","local","localtime","localtimestamp","log","log10","lower","match","match_number","match_recognize","matches","max","member","merge","method","min","minute","mod","modifies","module","month","multiset","national","natural","nchar","nclob","new","no","none","normalize","not","nth_value","ntile","null","nullif","numeric","octet_length","occurrences_regex","of","offset","old","omit","on","one","only","open","or","order","out","outer","over","overlaps","overlay","parameter","partition","pattern","per","percent","percent_rank","percentile_cont","percentile_disc","period","portion","position","position_regex","power","precedes","precision","prepare","primary","procedure","ptf","range","rank","reads","real","recursive","ref","references","referencing","regr_avgx","regr_avgy","regr_count","regr_intercept","regr_r2","regr_slope","regr_sxx","regr_sxy","regr_syy","release","result","return","returns","revoke","right","rollback","rollup","row","row_number","rows","running","savepoint","scope","scroll","search","second","seek","select","sensitive","session_user","set","show","similar","sin","sinh","skip","smallint","some","specific","specifictype","sql","sqlexception","sqlstate","sqlwarning","sqrt","start","static","stddev_pop","stddev_samp","submultiset","subset","substring","substring_regex","succeeds","sum","symmetric","system","system_time","system_user","table","tablesample","tan","tanh","then","time","timestamp","timezone_hour","timezone_minute","to","trailing","translate","translate_regex","translation","treat","trigger","trim","trim_array","true","truncate","uescape","union","unique","unknown","unnest","update","upper","user","using","value","values","value_of","var_pop","var_samp","varbinary","varchar","varying","versioning","when","whenever","where","width_bucket","window","with","within","without","year","add","asc","collation","desc","final","first","last","view"].filter((e=>!r.includes(e))),c={
+/home/z/my-project/public/js/components/chat-window.js:266:      backend: null   // populated by onBackend callback (cloud/ollama/webllm)
+/home/z/my-project/public/js/components/chat-window.js:295:   * so the header can show a "local" / "ollama" / "webllm" badge.
+/home/z/my-project/public/js/components/chat-window.js:310:                  : backend.type === 'webllm' ? 'AI Assistant · WebLLM'
+/home/z/my-project/public/js/components/chat-window.js:703:                    : message.backend?.type === 'webllm' ? 'AI Assistant · WebLLM'
