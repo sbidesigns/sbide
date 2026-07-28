@@ -1,0 +1,938 @@
+     1→<!DOCTYPE html>
+     2→<html lang="en" data-theme="unthemed">
+     3→<head>
+     4→  <meta charset="UTF-8">
+     5→  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+     6→  <meta name="description" content="SBIDE - Browser-based AI-powered IDE with tool-calling capabilities">
+     7→  <meta name="author" content="SBI Designs">
+     8→  <meta name="keywords" content="AI IDE, Code Editor, Development Environment, AI Assistant, File Management, Version Control, Chat Interface, Web IDE">
+     9→  <meta name="theme-color" content="#6366f1">
+    10→  <meta name="color-scheme" content="light dark">
+    11→  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://esm.sh; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://api.duckduckgo.com https://esm.sh; img-src 'self' data: blob: https:;">
+    12→
+    13→
+    14→  <!-- Canonical URL -->
+    15→  <link rel="canonical" href="https://ide.sbidesigns.com/">
+    16→
+    17→  <!-- Open Graph / Social -->
+    18→  <meta property="og:type" content="website">
+    19→  <meta property="og:title" content="SBIDE - IDE">
+    20→  <meta property="og:description" content="AI-Powered Development Environment with integrated chat, file management, and code editing">
+    21→  <meta property="og:image" content="logo.svg">
+    22→  <meta property="og:url" content="https://ide.sbidesigns.com/">
+    23→
+    24→  <!-- Twitter Card -->
+    25→  <meta name="twitter:card" content="summary_large_image">
+    26→  <meta name="twitter:title" content="SBIDE - IDE">
+    27→  <meta name="twitter:description" content="AI-Powered Development Environment">
+    28→
+    29→  <title>SBIDE - IDE</title>
+    30→
+    31→  <!-- Favicon -->
+    32→  <link rel="icon" type="image/svg+xml" href="/logo.svg">
+    33→
+    34→  <!-- Fonts with fallback -->
+    35→  <link rel="preconnect" href="https://fonts.googleapis.com">
+    36→  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    37→  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" onload="document.documentElement.classList.add('fonts-loaded')" onerror="document.documentElement.classList.add('fonts-failed')">
+    38→  
+    39→  <!-- Font Loading States (extracted for maintainability) -->
+    40→  <link rel="stylesheet" href="css/fonts.css">
+    41→  
+    42→  <!-- CodeMirror for code editing -->
+    43→  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css"
+    44→     integrity="sha512-+gBM4Ks6bqMx0dXnRQqJFqXLZqbClDqMP8LmAJ3Hq7Bz3wWpahsRupZrcNzGx+UdO9RDQOpBBO9S8ODCk5Psw==" crossorigin="anonymous">
+    45→  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css"
+    46→     integrity="sha512-+PKh5eFONMlXvIGX2t7E6o3KmVj/NuYJfPSa8KIioSUYi/iCLQOVpqtNOBWOS8g== crossorigin="anonymous">
+    47→  
+    48→  <!-- Highlight.js for syntax highlighting -->
+    49→  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"
+    50→     integrity="sha512-g+ERlLbA2tWzVQZUEO5lJPRxB6NSo9vC0jNpfI+Ai1BxgX+fn/3TnFyDDmQKUWGEVc0WDOOlYSxoHRLBsOEw==" crossorigin="anonymous">
+    51→  
+    52→  <!-- Main Styles -->
+    53→  <link rel="stylesheet" href="css/styles.css">
+    54→  <link rel="stylesheet" href="css/themes.css">
+    55→  
+    56→  <!-- Critical JS Preload Hints (parallel download before execution) -->
+    57→  <link rel="preload" href="js/boot.js" as="script">
+    58→  <link rel="preload" href="js/index.js" as="script">
+    59→  <link rel="preload" href="js/utils.js" as="script">
+    60→  <link rel="preload" href="js/storage.js" as="script">
+    61→  <link rel="preload" href="js/state.js" as="script">
+    62→  <link rel="preload" href="js/api.js" as="script">
+    63→  <link rel="preload" href="js/themes.js" as="script">
+    64→  <link rel="preload" href="js/components/chat-window.js" as="script">
+    65→  <link rel="preload" href="js/components/code-editor.js" as="script">
+    66→  <link rel="preload" href="js/components/sidebar.js" as="script">
+    67→  <link rel="preload" href="js/app.js" as="script">
+    68→  <link rel="manifest" href="/manifest.json">
+    69→</head>
+    70→<body>
+    71→  <!-- ============================================
+    72→       Loading Overlay (Instant Feedback)
+    73→       Shows immediately - removed by JS when app is ready
+    74→       ============================================ -->
+    75→  <div id="app-loading-overlay" class="app-loading-overlay" aria-hidden="true">
+    76→    <!-- Logo -->
+    77→    <svg class="app-loading-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    78→      <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+    79→      <path d="M2 17l10 5 10-5"/>
+    80→      <path d="M2 12l10 5 10-5"/>
+    81→    </svg>
+    82→    
+    83→    <!-- Title -->
+    84→    <span class="app-loading-text">SBIDE</span>
+    85→    
+    86→    <!-- Progress Bar -->
+    87→    <div class="app-loading-progress">
+    88→      <div id="loading-progress-bar" class="app-loading-progress-bar"></div>
+    89→    </div>
+    90→    
+    91→    <!-- Stage Text -->
+    92→    <span id="loading-stage-text" class="app-loading-stage">Initializing...</span>
+    93→  </div>
+    94→
+    95→  <div id="app" class="app-container" aria-label="SBIDE IDE">
+    96→    
+    97→    <!-- Skip Navigation -->
+    98→    <a href="#main-content" class="skip-link">Skip to main content</a>
+    99→    
+   100→    <!-- Header -->
+   101→    <header class="app-header" role="banner">
+   102→      <div class="header-left">
+   103→        <!-- Mobile Menu Toggle -->
+   104→        <button 
+   105→          id="mobile-menu-btn" 
+   106→          class="icon-btn mobile-only" 
+   107→          aria-label="Toggle sidebar menu"
+   108→          aria-expanded="false"
+   109→        >
+   110→          <svg class="icon icon-menu" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+   111→          <svg class="icon icon-x hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+   112→        </button>
+   113→        
+   114→        <!-- Logo -->
+   115→        <div class="logo" aria-hidden="true">
+   116→          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+   117→            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+   118→            <path d="M2 17l10 5 10-5"/>
+   119→            <path d="M2 12l10 5 10-5"/>
+   120→          </svg>
+   121→        </div>
+   122→        
+   123→        <h1 class="header-title hidden-sm">SBIDE</h1>
+   124→        <span class="badge badge-outline hidden-md">v1.0</span>
+   125→      </div>
+   126→      
+   127→      <div class="header-right">
+   128→        <!-- Current Project Badge -->
+   129→        <span id="current-project-badge" class="badge badge-secondary hidden-sm hidden"></span>
+   130→        
+   131→        <!-- ZIP Backup Indicator -->
+   132→        <div id="zip-indicator" class="zip-indicator hidden-md" title="Auto ZIP backup enabled">
+   133→          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+   134→          <span>ZIP</span>
+   135→        </div>
+   136→        
+   137→        <!-- Context Window Indicator -->
+   138→        <div id="context-window-indicator" class="context-window-indicator hidden-md" title="Context window usage - click to switch LLM">
+   139→          <div class="context-window-bar">
+   140→            <div id="context-window-fill" class="context-window-fill"></div>
+   141→          </div>
+   142→          <span id="context-window-text" class="context-window-text">0%</span>
+   143→        </div>
+   144→        
+   145→        <!-- LLM Provider Badge -->
+   146→        <button 
+   147→          id="llm-provider-btn" 
+   148→          class="llm-provider-badge hidden-md" 
+   149→          aria-label="Switch LLM provider"
+   150→          title="Click to change AI provider"
+   151→        >
+   152→          <span id="provider-dot" class="provider-dot"></span>
+   153→          <span id="provider-name-text">Z.AI Default</span>
+   154→          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+   155→        </button>
+   156→        
+   157→        <!-- View Mode Toggle -->
+   158→        <div id="view-toggle" class="view-toggle hidden-md" role="tablist" aria-label="View mode">
+   159→          <button 
+   160→            id="btn-view-chat" 
+   161→            class="toggle-btn active" 
+   162→            role="tab" 
+   163→            aria-selected="true"
+   164→            data-view="chat"
+   165→          >
+   166→            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+   167→            Chat
+   168→          </button>
+   169→          <button 
+   170→            id="btn-view-editor" 
+   171→            class="toggle-btn" 
+   172→            role="tab" 
+   173→            aria-selected="false"
+   174→            data-view="editor"
+   175→          >
+   176→            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+   177→            Editor
+   178→          </button>
+   179→          <button 
+   180→            id="btn-view-preview" 
+   181→            class="toggle-btn" 
+   182→            role="tab" 
+   183→            aria-selected="false"
+   184→            data-view="preview"
+   185→            title="Preview HTML/Markdown files"
+   186→          >
+   187→            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+   188→            Preview
+   189→          </button>
+   190→        </div>
+   191→        
+   192→        <!-- Connections Button (HuggingFace + GitHub) -->
+   193→        <button
+   194→          id="connections-btn"
+   195→          class="icon-btn"
+   196→          aria-label="Connect to HuggingFace or GitHub"
+   197→          title="Connections (HuggingFace, GitHub)"
+   198→        >
+   199→          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+   200→          <span class="connections-dot"></span>
+   201→        </button>
+   202→
+   203→        <!-- Settings Button -->
+   204→        <button 
+   205→          id="settings-btn" 
+   206→          class="icon-btn" 
+   207→          aria-label="Open settings"
+   208→          title="Settings"
+   209→        >
+   210→          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+   211→        </button>
+   212→        
+   213→        <!-- Editor Panel Toggle (Desktop) -->
+   214→        <button 
+   215→          id="editor-panel-toggle" 
+   216→          class="icon-btn hidden-md" 
+   217→          aria-label="Toggle editor panel"
+   218→          title="Toggle editor panel"
+   219→        >
+   220→          <svg class="panel-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+   221→        </button>
+   222→        
+   223→        <!-- Theme Cycle Button -->
+   224→        <button 
+   225→          id="theme-cycle-btn" 
+   226→          class="icon-btn theme-cycle-btn" 
+   227→          aria-label="Cycle theme"
+   228→          title="Change theme"
+   229→        >
+   230→          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+   231→        </button>
+   232→      </div>
+   233→    </header>
+   234→
+   235→    <!-- Main Content Area -->
+   236→    <main id="main-content" class="main-content" role="main">
+   237→      
+   238→      <!-- Mobile Overlay -->
+   239→      <div id="mobile-overlay" class="mobile-overlay hidden" aria-hidden="true"></div>
+   240→      
+   241→      <!-- Left Sidebar -->
+   242→      <aside 
+   243→        id="sidebar" 
+   244→        class="sidebar" 
+   245→        role="complementary" 
+   246→        aria-label="Project sidebar"
+   247→      >
+   248→        <!-- Loading Skeleton (shown until sidebar initializes) -->
+   249→        <div id="sidebar-skeleton" class="sidebar-loading-skeleton">
+   250→          <div class="skeleton-header">
+   251→            <div class="skeleton-title"></div>
+   252→            <div class="skeleton-actions">
+   253→              <div class="skeleton-btn"></div>
+   254→              <div class="skeleton-btn"></div>
+   255→              <div class="skeleton-btn"></div>
+   256→            </div>
+   257→          </div>
+   258→          <div class="skeleton-list">
+   259→            <div class="skeleton-item"><div class="skeleton-icon"></div><div class="skeleton-text long"></div></div>
+   260→            <div class="skeleton-item"><div class="skeleton-icon"></div><div class="skeleton-text medium"></div></div>
+   261→            <div class="skeleton-item"><div class="skeleton-icon"></div><div class="skeleton-text short"></div></div>
+   262→            <div class="skeleton-item"><div class="skeleton-icon"></div><div class="skeleton-text long"></div></div>
+   263→            <div class="skeleton-item"><div class="skeleton-icon"></div><div class="skeleton-text medium"></div></div>
+   264→          </div>
+   265→        </div>
+   266→        
+   267→        <!-- Collapsed Sidebar (Icon Bar) -->
+   268→        <div id="sidebar-collapsed" class="sidebar-collapsed">
+   269→          <button id="expand-sidebar-btn" class="icon-btn" aria-label="Expand sidebar">
+   270→            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+   271→          </button>
+   272→          
+   273→          <nav class="sidebar-nav" aria-label="Sidebar navigation">
+   274→            <button class="sidebar-nav-btn active" data-tab="files" aria-label="Files" title="Files">
+   275→              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+   276→            </button>
+   277→            <button class="sidebar-nav-btn" data-tab="memory" aria-label="Memory" title="Memory">
+   278→              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a8 8 0 018 8c0 5.4-8 14-8 14S4 15.4 4 10a8 8 0 018-8z"/><circle cx="12" cy="10" r="3"/></svg>
+   279→            </button>
+   280→            <button class="sidebar-nav-btn" data-tab="versions" aria-label="Versions" title="Versions">
+   281→              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+   282→            </button>
+   283→            <button class="sidebar-nav-btn" data-tab="search" aria-label="Search" title="Search">
+   284→              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+   285→            </button>
+   286→            <button class="sidebar-nav-btn" data-tab="meetings" aria-label="Meetings" title="Meetings">
+   287→              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+   288→            </button>
+   289→          </nav>
+   290→        </div>
+   291→        
+   292→        <!-- Expanded Sidebar -->
+   293→        <div id="sidebar-expanded" class="sidebar-expanded">
+   294→          <div class="sidebar-header">
+   295→            <h2 class="sidebar-title">Projects</h2>
+   296→            <div class="sidebar-actions">
+   297→              <button id="new-project-btn" class="icon-btn sm" title="New Project" aria-label="Create new project">
+   298→                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+   299→              </button>
+   300→              <button id="import-project-btn" class="icon-btn sm" title="Import Project" aria-label="Import project from ZIP">
+   301→                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+   302→              </button>
+   303→              <button id="collapse-sidebar-btn" class="icon-btn sm" aria-label="Collapse sidebar">
+   304→                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+   305→              </button>
+   306→            </div>
+   307→          </div>
+   308→          
+   309→          <!-- Projects List -->
+   310→          <div class="projects-list-container">
+   311→            <div id="projects-loading" class="loading-spinner hidden">
+   312→              <div class="spinner"></div>
+   313→              <span>Loading projects...</span>
+   314→            </div>
+   315→            <div id="projects-list" class="projects-list" role="listbox" aria-label="Projects"></div>
+   316→            <div id="no-projects" class="empty-state hidden">
+   317→              <span>No projects yet</span>
+   318→            </div>
+   319→          </div>
+   320→          <div class="projects-resize-handle" role="separator" aria-orientation="horizontal" aria-label="Resize projects list" tabindex="0"></div>
+   321→          
+   322→          <!-- Tab Panels -->
+   323→          <div class="sidebar-tabs" role="tablist">
+   324→            <button class="tab-btn active" data-tab="files" role="tab" aria-selected="true">
+   325→              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+   326→            </button>
+   327→            <button class="tab-btn" data-tab="memory" role="tab" aria-selected="false">
+   328→              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a8 8 0 018 8c0 5.4-8 14-8 14S4 15.4 4 10a8 8 0 018-8z"/></svg>
+   329→            </button>
+   330→            <button class="tab-btn" data-tab="versions" role="tab" aria-selected="false">
+   331→              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/></svg>
+   332→            </button>
+   333→            <button class="tab-btn" data-tab="search" role="tab" aria-selected="false">
+   334→              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+   335→            </button>
+   336→            <button class="tab-btn" data-tab="meetings" role="tab" aria-selected="false">
+   337→              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+   338→            </button>
+   339→          </div>
+   340→          
+   341→          <!-- Tab Content Panels -->
+   342→          <div class="tab-panels">
+   343→            <!-- Files Panel -->
+   344→            <div id="panel-files" class="tab-panel active" role="tabpanel" aria-labelledby="tab-files">
+   345→              <!-- file-tree-panel-header: reordered (new-file, new-folder, sort-name, sort-date, refresh) -->
+   346→              <div class="panel-header file-tree-panel-header">
+   347→                <span class="panel-header-spacer"></span>
+   348→                <button id="new-file-btn" class="icon-btn xs" title="New file" aria-label="Create new file">
+   349→                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+   350→                </button>
+   351→                <button id="new-folder-btn" class="icon-btn xs" title="New folder" aria-label="Create new folder">
+   352→                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+   353→                </button>
+   354→                <button id="sort-name-btn" class="icon-btn xs sort-toggle" data-sort="name" data-dir="asc" title="Sort by name (A→Z). Click to reverse." aria-label="Sort by name, click to reverse direction" aria-pressed="true">
+   355→                  <svg class="icon-asc" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h10M3 12h7M3 18h4"/><line x1="18" y1="6" x2="18" y2="18"/><polyline points="15 9 18 6 21 9"/></svg>
+   356→                  <svg class="icon-desc hidden" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h10M3 12h7M3 18h4"/><line x1="18" y1="6" x2="18" y2="18"/><polyline points="15 15 18 18 21 15"/></svg>
+   357→                </button>
+   358→                <button id="sort-date-btn" class="icon-btn xs sort-toggle" data-sort="date" data-dir="desc" title="Sort by date (Newest first). Click to reverse." aria-label="Sort by date, click to reverse direction" aria-pressed="false">
+   359→                  <svg class="icon-desc" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="12" r="7"/><polyline points="10 8 10 12 13 14"/><line x1="20" y1="5" x2="20" y2="19"/><polyline points="17 16 20 19 23 16"/></svg>
+   360→                  <svg class="icon-asc hidden" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="12" r="7"/><polyline points="10 8 10 12 13 14"/><line x1="20" y1="5" x2="20" y2="19"/><polyline points="17 8 20 5 23 8"/></svg>
+   361→                </button>
+   362→                <button id="refresh-files-btn" class="icon-btn xs" title="Refresh files" aria-label="Refresh file tree">
+   363→                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+   364→                </button>
+   365→              </div>
+   366→              <div id="file-tree" class="file-tree" role="tree" aria-label="File explorer"></div>
+   367→            </div>
+   368→            
+   369→            <!-- Memory Panel -->
+   370→            <div id="panel-memory" class="tab-panel" role="tabpanel" aria-labelledby="tab-memory">
+   371→              <div class="memory-panel">
+   372→                <div class="memory-empty-state">
+   373→                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="text-muted"><path d="M12 2a8 8 0 018 8c0 5.4-8 14-8 14S4 15.4 4 10a8 8 0 018-8z"/></svg>
+   374→                  <p>Select a project to view memory anchors</p>
+   375→                </div>
+   376→                <div id="memory-content" class="memory-content hidden"></div>
+   377→              </div>
+   378→            </div>
+   379→            
+   380→            <!-- Versions Panel -->
+   381→            <div id="panel-versions" class="tab-panel" role="tabpanel" aria-labelledby="tab-versions">
+   382→              <div class="version-browser">
+   383→                <div class="version-empty-state">
+   384→                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="text-muted"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+   385→                  <p>No versions available</p>
+   386→                </div>
+   387→                <div id="versions-list" class="versions-list hidden"></div>
+   388→              </div>
+   389→            </div>
+   390→            
+   391→            <!-- Search Panel -->
+   392→            <div id="panel-search" class="tab-panel" role="tabpanel" aria-labelledby="tab-search">
+   393→              <div class="search-panel">
+   394→                <div class="search-input-wrapper">
+   395→                  <input 
+   396→                    type="text" 
+   397→                    id="search-input" 
+   398→                    class="search-input" 
+   399→                    placeholder="Search the web..."
+   400→                    aria-label="Web search query"
+   401→                  />
+   402→                  <button id="search-btn" class="btn btn-primary btn-sm" aria-label="Search">
+   403→                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+   404→                  </button>
+   405→                </div>
+   406→                <div id="search-results" class="search-results"></div>
+   407→                <div id="context-results" class="context-results hidden">
+   408→                  <h4 class="context-title">Context Sources (<span id="context-count">0</span>)</h4>
+   409→                  <div id="context-list" class="context-list"></div>
+   410→                </div>
+   411→              </div>
+   412→            </div>
+   413→            
+   414→            <!-- Meetings Panel -->
+   415→            <div id="panel-meetings" class="tab-panel" role="tabpanel" aria-labelledby="tab-meetings">
+   416→              <div class="meetings-panel">
+   417→                <div class="meetings-empty-state">
+   418→                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="text-muted"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+   419→                  <p>Meeting notes will appear here after AI interactions</p>
+   420→                </div>
+   421→                <div id="meetings-list" class="meetings-list hidden"></div>
+   422→              </div>
+   423→            </div>
+   424→          </div>
+   425→          
+   426→          <!-- Project Info Footer -->
+   427→          <div id="project-info-footer" class="project-info-footer hidden">
+   428→            <div class="info-row">
+   429→              <span>Version</span>
+   430→              <span id="footer-version" class="font-mono">-</span>
+   431→            </div>
+   432→            <div class="info-row">
+   433→              <span>Files</span>
+   434→              <span id="footer-file-count">-</span>
+   435→            </div>
+   436→          </div>
+   437→        </div>
+   438→        <!-- Resize handle for adjustable sidebar width (desktop only) -->
+   439→        <div class="sidebar-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div>
+   440→      </aside>
+   441→
+   442→      <!-- Chat Area -->
+   443→      <section id="chat-area" class="chat-area" aria-label="AI Chat interface">
+   444→        <!-- Loading Skeleton (shown until chat initializes) -->
+   445→        <div id="chat-skeleton" class="chat-loading-skeleton">
+   446→          <div class="chat-skeleton-message" style="align-self: flex-end;">
+   447→            <div class="chat-skeleton-bubble">
+   448→              <div class="chat-skeleton-line long"></div>
+   449→              <div class="chat-skeleton-line medium"></div>
+   450→            </div>
+   451→          </div>
+   452→          <div class="chat-skeleton-message">
+   453→            <div class="chat-skeleton-avatar"></div>
+   454→            <div class="chat-skeleton-bubble">
+   455→              <div class="chat-skeleton-line long"></div>
+   456→              <div class="chat-skeleton-line long"></div>
+   457→              <div class="chat-skeleton-line short"></div>
+   458→            </div>
+   459→          </div>
+   460→          <div class="chat-skeleton-message">
+   461→            <div class="chat-skeleton-avatar"></div>
+   462→            <div class="chat-skeleton-bubble">
+   463→              <div class="chat-skeleton-line medium"></div>
+   464→              <div class="chat-skeleton-line long"></div>
+   465→              <div class="chat-skeleton-line short"></div>
+   466→              <div class="chat-skeleton-line medium"></div>
+   467→            </div>
+   468→          </div>
+   469→        </div>
+   470→        
+   471→        <div id="chat-messages" class="chat-messages" role="log" aria-live="polite" aria-label="Chat messages">
+   472→          <!-- Welcome state and messages are rendered by ChatWindowComponent -->
+   473→        </div>
+   474→        
+   475→        <!-- Chat Input -->
+   476→        <div class="chat-input-container">
+   477→          <div class="chat-toolbar">
+   478→            <button id="clear-chat-btn" class="btn btn-ghost btn-xs" data-action="clear" disabled aria-label="Clear conversation">
+   479→              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+   480→              Clear
+   481→            </button>
+   482→            <button id="export-chat-btn" class="btn btn-ghost btn-xs" data-action="export" disabled aria-label="Export conversation">
+   483→              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+   484→              Export
+   485→            </button>
+   486→            
+   487→            <!-- Toolbar: Separator -->
+   488→            <div class="toolbar-separator"></div>
+   489→            
+   490→            <!-- Web Search Toggle -->
+   491→            <button 
+   492→              id="web-search-btn" 
+   493→              class="btn btn-ghost btn-xs toolbar-toggle" 
+   494→              data-action="web-search"
+   495→              aria-label="Toggle web search for next message"
+   496→              aria-pressed="false"
+   497→              title="Enable web search — AI will search the internet before responding"
+   498→            >
+   499→              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+   500→              <span>Web Search</span>
+   501→              <span class="toggle-indicator" aria-hidden="true"></span>
+   502→            </button>
+   503→            
+   504→            <!-- Diff Patch Mode Toggle -->
+   505→            <button 
+   506→              id="diff-patch-btn" 
+   507→              class="btn btn-ghost btn-xs toolbar-toggle" 
+   508→              data-action="diff-patch"
+   509→              aria-label="Toggle diff patch mode"
+   510→              aria-pressed="false"
+   511→              title="Diff Patch Mode — AI responses show unified diff format for code changes"
+   512→            >
+   513→              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M20 21h-5v-5"/><path d="M4 21h5v-5"/><path d="M21 3l-9 9"/><path d="M3 21l9-9"/></svg>
+   514→              <span>Diff Patch</span>
+   515→              <span class="toggle-indicator" aria-hidden="true"></span>
+   516→            </button>
+   517→            
+   518→            <div id="context-indicator" class="context-indicator hidden">
+   519→              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+   520→              <span id="context-result-count">0</span> web results in context
+   521→            </div>
+   522→          </div>
+   523→          
+   524→          <div class="chat-input-wrapper">
+   525→            <textarea 
+   526→              id="chat-input" 
+   527→              class="chat-input" 
+   528→              placeholder="Send a message..." 
+   529→              rows="1"
+   530→              aria-label="Chat message input"
+   531→            ></textarea>
+   532→            <div class="chat-input-actions">
+   533→              <button 
+   534→                id="stop-streaming-btn" 
+   535→                class="btn btn-danger btn-icon hidden" 
+   536→                data-action="stop"
+   537→                aria-label="Stop streaming response"
+   538→                title="Stop generation"
+   539→              >
+   540→                <svg class="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>
+   541→              </button>
+   542→              <button 
+   543→                id="send-message-btn" 
+   544→                class="btn btn-primary btn-icon" 
+   545→                data-action="send" 
+   546→                aria-label="Send message"
+   547→                title="Send message (Enter)"
+   548→              >
+   549→                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+   550→              </button>
+   551→            </div>
+   552→          </div>
+   553→          <p class="chat-input-hint">Press Enter to send, Shift+Enter for new line</p>
+   554→        </div>
+   555→      </section>
+   556→
+   557→      <!-- Editor Panel -->
+   558→      <div class="editor-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize editor panel" tabindex="0"></div>
+   559→      <aside id="editor-panel" class="editor-panel hidden" aria-label="Code editor panel">
+   560→        <!-- Loading Skeleton (shown until editor initializes) -->
+   561→        <div id="editor-skeleton" class="editor-loading-skeleton">
+   562→          <div class="editor-skeleton-header">
+   563→            <div class="editor-skeleton-tabs">
+   564→              <div class="editor-skeleton-tab"></div>
+   565→              <div class="editor-skeleton-tab"></div>
+   566→            </div>
+   567→          </div>
+   568→          <div class="editor-skeleton-body">
+   569→            <div class="editor-skeleton-line long"></div>
+   570→            <div class="editor-skeleton-line indent"></div>
+   571→            <div class="editor-skeleton-line medium"></div>
+   572→            <div class="editor-skeleton-line long"></div>
+   573→            <div class="editor-skeleton-line indent"></div>
+   574→            <div class="editor-skeleton-line short"></div>
+   575→            <div class="editor-skeleton-line long"></div>
+   576→          </div>
+   577→        </div>
+   578→        
+   579→        <div id="editor-no-file" class="editor-no-file hidden">
+   580→          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+   581→            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+   582→            <polyline points="14 2 14 8 20 8"/>
+   583→            <line x1="16" y1="13" x2="8" y2="13"/>
+   584→            <line x1="16" y1="17" x2="8" y2="17"/>
+   585→            <polyline points="10 9 9 9 8 9"/>
+   586→          </svg>
+   587→          <p class="editor-no-file-title">No file selected</p>
+   588→          <p class="editor-no-file-hint">Select a file from the sidebar to view or edit</p>
+   589→        </div>
+   590→        
+   591→        <div id="editor-active" class="editor-active hidden">
+   592→          <!-- Editor Header -->
+   593→          <div class="editor-header">
+   594→            <div class="editor-header-left">
+   595→              <span id="editor-file-icon" class="file-icon" aria-hidden="true"></span>
+   596→              <span id="editor-file-name" class="file-name"></span>
+   597→              <span id="editor-language-badge" class="badge badge-outline"></span>
+   598→              <span id="editor-modified-badge" class="badge badge-warning hidden">Modified</span>
+   599→            </div>
+   600→            <div class="editor-header-right">
+   601→              <!-- View Mode Actions -->
+   602→              <div id="editor-view-actions" class="editor-actions">
+   603→                <button id="copy-file-btn" class="icon-btn xs" data-action="copy" title="Copy content" aria-label="Copy file content">
+   604→                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+   605→                </button>
+   606→                <button id="download-file-btn" class="icon-btn xs" data-action="download" title="Download file" aria-label="Download file">
+   607→                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+   608→                </button>
+   609→                <button id="preview-toggle-btn" class="icon-btn xs hidden" data-action="preview" title="Preview rendered" aria-label="Toggle preview mode">
+   610→                  <svg class="preview-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+   611→                  <svg class="code-icon hidden" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+   612→                </button>
+   613→                <button id="edit-file-btn" class="icon-btn xs" data-action="edit" title="Edit file" aria-label="Edit file">
+   614→                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+   615→                </button>
+   616→                <button id="fullscreen-btn" class="icon-btn xs" data-action="fullscreen" title="Fullscreen" aria-label="Toggle fullscreen mode">
+   617→                  <svg class="maximize-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
+   618→                  <svg class="minimize-icon hidden" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v3a2 2 0 01-2 2H3m18 0h-3a2 2 0 01-2-2V3m0 18v-3a2 2 0 012-2h3M3 16h3a2 2 0 012 2v3"/></svg>
+   619→                </button>
+   620→                <button id="close-editor-btn" class="icon-btn xs" title="Close" aria-label="Close editor">
+   621→                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+   622→                </button>
+   623→              </div>
+   624→              
+   625→              <!-- Edit Mode Actions -->
+   626→              <div id="editor-edit-actions" class="editor-actions hidden">
+   627→                <button id="cancel-edit-btn" class="btn btn-ghost btn-xs" data-action="view" aria-label="Cancel editing">
+   628→                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 105.31-5.31L1 10"/></svg>
+   629→                  Cancel
+   630→                </button>
+   631→                <button id="save-file-btn" class="btn btn-primary btn-xs" data-action="save" disabled aria-label="Save file">
+   632→                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+   633→                  Save
+   634→                </button>
+   635→              </div>
+   636→            </div>
+   637→          </div>
+   638→          
+   639→          <!-- Find/Replace Panel -->
+   640→          <div id="find-replace-panel" class="find-replace-panel hidden">
+   641→            <div class="find-row">
+   642→              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-muted"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+   643→              <input type="text" id="find-input" class="find-input input input-xs" placeholder="Find..." aria-label="Find text">
+   644→              <span id="match-count" class="match-count hidden"></span>
+   645→              <button id="find-prev-btn" class="icon-btn xs find-prev" aria-label="Previous match" disabled>
+   646→                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"/></svg>
+   647→              </button>
+   648→              <button id="find-next-btn" class="icon-btn xs find-next" aria-label="Next match" disabled>
+   649→                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+   650→              </button>
+   651→              <button id="close-find-btn" class="icon-btn xs find-close" aria-label="Close find/replace">
+   652→                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+   653→              </button>
+   654→            </div>
+   655→            <div class="replace-row">
+   656→              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-muted"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+   657→              <input type="text" id="replace-input" class="replace-input input input-xs" placeholder="Replace..." aria-label="Replace text">
+   658→              <button id="replace-btn" class="btn btn-outline btn-xs replace-one disabled" aria-label="Replace current match">Replace</button>
+   659→              <button id="replace-all-btn" class="btn btn-outline btn-xs replace-all disabled" aria-label="Replace all matches">All</button>
+   660→            </div>
+   661→          </div>
+   662→          
+   663→          <!-- Editor Content Area -->
+   664→          <div class="editor-content">
+   665→            <!-- View Mode: Syntax Highlighted Code -->
+   666→            <div id="code-display" class="code-display">
+   667→              <pre><code id="code-highlight" class="hljs"></code></pre>
+   668→            </div>
+   669→            
+   670→            <!-- Edit Mode: Textarea with Line Numbers -->
+   671→            <div id="code-editor" class="code-editor hidden">
+   672→              <div class="line-numbers" id="line-numbers" aria-hidden="true"></div>
+   673→              <textarea 
+   674→                id="code-textarea" 
+   675→                class="code-textarea" 
+   676→                spellcheck="false"
+   677→                aria-label="Code editor"
+   678→              ></textarea>
+   679→            </div>
+   680→            
+   681→            <!-- Preview Mode: Iframe for HTML/SVG -->
+   682→            <div id="code-preview" class="code-preview hidden">
+   683→              <iframe id="preview-iframe" sandbox="allow-scripts allow-same-origin" title="File preview"></iframe>
+   684→            </div>
+   685→          </div>
+   686→          
+   687→          <!-- Editor Footer -->
+   688→          <div class="editor-footer">
+   689→            <div class="editor-stats">
+   690→              <span id="line-count">0 lines</span>
+   691→              <span id="byte-count">0 bytes</span>
+   692→              <span id="language-name" class="hidden-sm">-</span>
+   693→            </div>
+   694→            <div class="editor-footer-actions">
+   695→              <div id="edit-mode-actions" class="edit-mode-actions hidden">
+   696→                <button id="word-wrap-btn" class="icon-btn xs active" title="Toggle word wrap" aria-label="Toggle word wrap">
+   697→                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
+   698→                </button>
+   699→                <button id="show-find-btn" class="icon-btn xs" title="Find & Replace" aria-label="Open find and replace">
+   700→                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+   701→                </button>
+   702→              </div>
+   703→              <button id="quick-edit-btn" class="btn btn-outline btn-xs hidden-sm">Edit</button>
+   704→            </div>
+   705→          </div>
+   706→        </div>
+   707→      </aside>
+   708→    </main>
+   709→
+   710→    <!-- Mobile Bottom Navigation -->
+   711→    <nav id="mobile-nav" class="mobile-nav hidden" role="navigation" aria-label="Mobile navigation">
+   712→      <button class="mobile-nav-btn" data-panel="sidebar" aria-label="Files" type="button">
+   713→        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+   714→        <span>Files</span>
+   715→      </button>
+   716→      <button class="mobile-nav-btn active" data-panel="chat" aria-label="Chat" type="button">
+   717→        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+   718→        <span>Chat</span>
+   719→      </button>
+   720→      <button class="mobile-nav-btn" data-panel="editor" aria-label="Editor" type="button">
+   721→        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+   722→        <span>Editor</span>
+   723→      </button>
+   724→      <button class="mobile-nav-btn" data-panel="settings" aria-label="Settings" type="button">
+   725→        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+   726→        <span>Settings</span>
+   727→      </button>
+   728→    </nav>
+   729→
+   730→    <!-- Settings Modal -->
+   731→    <div id="settings-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
+   732→      <div class="modal">
+   733→        <div class="modal-header">
+   734→          <h2 id="settings-modal-title" class="modal-title">Settings</h2>
+   735→          <button id="close-settings-btn" class="icon-btn" aria-label="Close settings">
+   736→            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+   737→          </button>
+   738→        </div>
+   739→        <div class="modal-body">
+   740→          <!-- Theme Setting -->
+   741→          <div class="setting-group">
+   742→            <label class="setting-label" for="theme-select">Theme</label>
+   743→            <select id="theme-select" class="select" aria-label="Select theme">
+   744→              <optgroup label="Light">
+   745→                <option value="unthemed">Default (Pure white + indigo)</option>
+   746→                <option value="default">Indigo (Lavender + violet)</option>
+   747→                <option value="light">Paper (Cream + amber)</option>
+   748→                <option value="lightgrey">Light Grey (Soft grey + teal)</option>
+   749→                <option value="slate">Slate (Cool gray monochrome)</option>
+   750→                <option value="azure">Azure (Fluent gray + blue)</option>
+   751→              </optgroup>
+   752→              <optgroup label="Dark">
+   753→                <option value="dark">Dark (Slate-navy + indigo)</option>
+   754→                <option value="midnight">Midnight (Deep purple + violet)</option>
+   755→                <option value="darkgrey">Dark Grey (Charcoal + cyan)</option>
+   756→                <option value="graphite">Graphite (Warm dark + amber)</option>
+   757→                <option value="carbon">Carbon (Black + IBM blue)</option>
+   758→                <option value="black">Black (Pure black + cyan)</option>
+   759→              </optgroup>
+   760→            </select>
+   761→          </div>
+   762→          
+   763→          <!-- Font Scale Setting -->
+   764→          <div class="setting-group">
+   765→            <label class="setting-label" for="font-scale-slider">Font Scale: <span id="font-scale-value">1x</span></label>
+   766→            <input 
+   767→              type="range" 
+   768→              id="font-scale-slider" 
+   769→              class="slider" 
+   770→              min="0.75" 
+   771→              max="1.5" 
+   772→              step="0.05" 
+   773→              value="1"
+   774→              aria-label="Font size scale"
+   775→            >
+   776→            <div class="slider-labels">
+   777→              <span>0.75x</span>
+   778→              <span>1.5x</span>
+   779→            </div>
+   780→          </div>
+   781→          
+   782→          <!-- Notifications Setting -->
+   783→          <div class="setting-group">
+   784→            <label class="setting-checkbox">
+   785→              <input type="checkbox" id="notifications-toggle" checked />
+   786→              <span>Show notifications</span>
+   787→            </label>
+   788→          </div>
+   789→          
+   790→          <!-- ZIP Backup Setting -->
+   791→          <div class="setting-group">
+   792→            <label class="setting-checkbox">
+   793→              <input type="checkbox" id="zip-backup-toggle" checked />
+   794→              <span>Create ZIP backup on checkpoint</span>
+   795→            </label>
+   796→          </div>
+   797→
+   798→          <!-- Sound Effects Setting (ported from v1 IDE) -->
+   799→          <div class="setting-group">
+   800→            <label class="setting-checkbox">
+   801→              <input type="checkbox" id="sound-effects-toggle" />
+   802→              <span>Sound effects</span>
+   803→            </label>
+   804→          </div>
+   805→
+   806→          <!-- Editor Section (ported from v1 IDE) -->
+   807→          <div class="setting-group">
+   808→            <label class="setting-label">Editor</label>
+   809→            <label class="setting-checkbox">
+   810→              <input type="checkbox" id="word-wrap-toggle" checked />
+   811→              <span>Word Wrap</span>
+   812→            </label>
+   813→            <label class="setting-checkbox">
+   814→              <input type="checkbox" id="line-numbers-toggle" checked />
+   815→              <span>Line Numbers</span>
+   816→            </label>
+   817→            <label class="setting-checkbox">
+   818→              <input type="checkbox" id="auto-save-toggle" />
+   819→              <span>Auto-save</span>
+   820→            </label>
+   821→          </div>
+   822→        </div>
+   823→      </div>
+   824→    </div>
+   825→
+   826→    <!-- New Project Modal -->
+   827→    <div id="new-project-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="new-project-modal-title">
+   828→      <div class="modal modal-sm">
+   829→        <div class="modal-header">
+   830→          <h2 id="new-project-modal-title" class="modal-title">Create New Project</h2>
+   831→          <button id="close-new-project-btn" class="icon-btn" aria-label="Close dialog">
+   832→            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+   833→          </button>
+   834→        </div>
+   835→        <div class="modal-body">
+   836→          <div class="form-group">
+   837→            <input 
+   838→              type="text" 
+   839→              id="new-project-name" 
+   840→              class="input" 
+   841→              placeholder="My Awesome Project!"
+   842→              aria-describedby="project-name-hint"
+   843→            />
+   844→            <p id="project-name-hint" class="form-hint">Any name works — we'll make it URL-safe</p>
+   845→          </div>
+   846→        </div>
+   847→        <div class="modal-footer">
+   848→          <button id="cancel-new-project-btn" class="btn btn-outline">Cancel</button>
+   849→          <button id="confirm-new-project-btn" class="btn btn-primary" disabled>
+   850→            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+   851→            Create
+   852→          </button>
+   853→        </div>
+   854→      </div>
+   855→    </div>
+   856→
+   857→    <!-- Import Project Modal -->
+   858→    <div id="import-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
+   859→      <div class="modal modal-sm">
+   860→        <div class="modal-header">
+   861→          <h2 id="import-modal-title" class="modal-title">Import Project</h2>
+   862→          <button id="close-import-btn" class="icon-btn" aria-label="Close dialog">
+   863→            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+   864→          </button>
+   865→        </div>
+   866→        <div class="modal-body">
+   867→          <div class="form-group">
+   868→            <label class="form-label" for="import-file-input">ZIP File</label>
+   869→            <input 
+   870→              type="file" 
+   871→              id="import-file-input" 
+   872→              class="file-input" 
+   873→              accept=".zip"
+   874→              aria-describedby="import-file-hint"
+   875→            />
+   876→            <p id="import-file-hint" class="form-hint">Select a ZIP archive to import</p>
+   877→          </div>
+   878→          <div class="form-group">
+   879→            <label class="form-label" for="import-name-input">Project Name (optional)</label>
+   880→            <input 
+   881→              type="text" 
+   882→              id="import-name-input" 
+   883→              class="input" 
+   884→              placeholder="Auto-generated from file name"
+   885→            />
+   886→          </div>
+   887→        </div>
+   888→        <div class="modal-footer">
+   889→          <button id="cancel-import-btn" class="btn btn-outline">Cancel</button>
+   890→          <button id="confirm-import-btn" class="btn btn-primary" disabled>
+   891→            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+   892→            Import
+   893→          </button>
+   894→        </div>
+   895→      </div>
+   896→    </div>
+   897→
+   898→    <!-- Initialization Error Message (hidden by default) -->
+   899→    <div id="init-error-message" class="init-error hidden" role="alert" aria-live="assertive"></div>
+   900→
+   901→    <!-- Toast Container -->
+   902→    <div id="toast-container" class="toast-container" role="status" aria-live="polite" aria-label="Notifications"></div>
+   903→  </div>
+   904→
+   905→  <!-- ============================================
+   906→       Application Scripts (Barrel Loading System)
+   907→       
+   908→       Loading order:
+   909→       1. boot.js   → Globals, CDN error handling, font detection
+   910→       2. index.js  → Barrel loader (all modules in dependency order)
+   911→       
+   912→       See js/index.js for full dependency graph.
+   913→       ============================================ -->
+   914→  
+   915→  <script src="js/boot.js?v=2"></script>
+   916→  <script src="js/index.js?v=3"></script>
+   917→  
+   918→  <!-- Noscript Fallback -->
+   919→  <noscript>
+   920→    <style>
+   921→      #app { display: none; }
+   922→      body::after {
+   923→        content: 'SBIDE requires JavaScript to function. Please enable JavaScript in your browser settings.';
+   924→        display: flex;
+   925→        align-items: center;
+   926→        justify-content: center;
+   927→        min-height: 100vh;
+   928→        padding: 2rem;
+   929→        text-align: center;
+   930→        font-family: system-ui, -apple-system, sans-serif;
+   931→        color: #374151;
+   932→        background: #f9fafb;
+   933→      }
+   934→    </style>
+   935→  </noscript>
+   936→</body>
+   937→</html>
+   938→
