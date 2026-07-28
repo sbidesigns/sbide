@@ -1,0 +1,21 @@
+{
+  "name": "SBIDE",
+  "short_name": "SBIDE",
+  "description": "Development Environment",
+  "start_url": "/sbide/",
+  "scope": "/sbide/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#6366f1",
+  "background_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/sbide/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "categories": ["developer-tools", "productivity"],
+  "lang": "en"
+}

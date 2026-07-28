@@ -27,6 +27,74 @@ const CodeEditorComponent = (() => {
   let autoSaveTimeout = null;
   const AUTO_SAVE_DELAY = 1000; // ms
   
+  // LocalStorage session restore keys
+  const LS_CONTENT_KEY = 'sbide_editor_content';
+  const LS_TIMESTAMP_KEY = 'sbide_editor_timestamp';
+  const LS_SESSION_KEY = 'sbide_editor_session_id';
+  let currentSessionId = generateSessionId();
+  let lsSaveTimeout = null;
+  const LS_SAVE_DELAY = 500; // Aggressive debounce for localStorage
+  
+  /**
+   * Generate a unique session ID for this page load
+   * Used to detect refresh vs new tab
+   */
+  function generateSessionId() {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+  }
+  
+  /**
+   * Save current editor content to localStorage for session restore
+   * Always saves, regardless of file tabs or autoSave setting
+   */
+  function saveToLocalStorage(content) {
+    clearTimeout(lsSaveTimeout);
+    lsSaveTimeout = setTimeout(() => {
+      try {
+        localStorage.setItem(LS_CONTENT_KEY, content);
+        localStorage.setItem(LS_TIMESTAMP_KEY, Date.now().toString());
+        localStorage.setItem(LS_SESSION_KEY, currentSessionId);
+      } catch (e) {
+        // Quota exceeded or storage unavailable - silent fail
+        console.warn('[SBIDE] Could not save to localStorage:', e.message);
+      }
+    }, LS_SAVE_DELAY);
+  }
+  
+  /**
+   * Restore content from localStorage if available
+   * @returns {{ content: string, timestamp: number } | null}
+   */
+  function restoreFromLocalStorage() {
+    try {
+      const content = localStorage.getItem(LS_CONTENT_KEY);
+      const timestamp = localStorage.getItem(LS_TIMESTAMP_KEY);
+      const sessionId = localStorage.getItem(LS_SESSION_KEY);
+      
+      if (content && timestamp) {
+        return { 
+          content, 
+          timestamp: parseInt(timestamp, 10),
+          isCurrentSession: sessionId === currentSessionId
+        };
+      }
+    } catch (e) {
+      // Storage unavailable
+    }
+    return null;
+  }
+  
+  /**
+   * Clear saved session data
+   */
+  function clearLocalStorageSession() {
+    try {
+      localStorage.removeItem(LS_CONTENT_KEY);
+      localStorage.removeItem(LS_TIMESTAMP_KEY);
+      localStorage.removeItem(LS_SESSION_KEY);
+    } catch (e) {}
+  }
+  
   // Editor preferences (ported from v1 IDE)
   let editorPrefs = { wordWrap: true, lineNumbers: true, autoSave: false, soundEffects: false };
   
@@ -109,9 +177,25 @@ const CodeEditorComponent = (() => {
       });
     }
     
-    // Initial render
-    renderTabs();
-    showWelcomeScreen();
+    // Check for saved session and restore
+    const savedSession = restoreFromLocalStorage();
+    if (savedSession && savedSession.content) {
+      // Restore the saved content
+      currentContent = savedSession.content;
+      originalContent = savedSession.content;
+      
+      // Show restored content in view mode
+      renderTabs();
+      setEditorVisibility(true);
+      displayContent(savedSession.content);
+      
+      // Show subtle restore notification
+      showRestoreNotification(savedSession.timestamp);
+    } else {
+      // Fresh start
+      renderTabs();
+      showWelcomeScreen();
+    }
   }
 
   /**
@@ -413,6 +497,52 @@ const CodeEditorComponent = (() => {
   }
 
   /**
+   * Show a subtle notification that content was restored from previous session
+   */
+  function showRestoreNotification(timestamp) {
+    if (!container) return;
+    
+    const timeAgo = formatTimeAgo(timestamp);
+    
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.className = 'session-restore-notification';
+    notification.innerHTML = `
+      <span class="restore-icon">${IDEUtils?.Icons?.info || 'ℹ'}</span>
+      <span class="restore-text">Restored from ${timeAgo}</span>
+      <button class="restore-dismiss" title="Dismiss">×</button>
+    `;
+    
+    // Insert at top of container
+    container.prepend(notification);
+    
+    // Auto-dismiss after 4 seconds
+    const dismissTimeout = setTimeout(() => {
+      notification.classList.add('fade-out');
+      setTimeout(() => notification.remove(), 300);
+    }, 4000);
+    
+    // Manual dismiss
+    notification.querySelector('.restore-dismiss').addEventListener('click', () => {
+      clearTimeout(dismissTimeout);
+      notification.classList.add('fade-out');
+      setTimeout(() => notification.remove(), 300);
+    });
+  }
+  
+  /**
+   * Format timestamp as relative time ago
+   */
+  function formatTimeAgo(timestamp) {
+    const seconds = Math.floor((Date.now() - timestamp) / 1000);
+    
+    if (seconds < 60) return 'just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    return `${Math.floor(seconds / 86400)}d ago`;
+  }
+  
+  /**
    * Show welcome/empty state.
    *
    * The HTML defines `#editor-no-file` as the empty state (icon + hint text).
@@ -685,6 +815,9 @@ const CodeEditorComponent = (() => {
       onContentChange(newContent);
     }
     
+    // Always save to localStorage for session restore (independent of file system)
+    saveToLocalStorage(newContent);
+    
     // Debounced auto-save: actually persist the file when autoSave is enabled
     clearTimeout(autoSaveTimeout);
     autoSaveTimeout = setTimeout(() => {
@@ -926,6 +1059,207 @@ const CodeEditorComponent = (() => {
   }
 
   // ============================================
+
+  // ============================================
+  // Find & Replace
+  // ============================================
+  
+  let findReplaceEl = null;
+  
+  function openFind() {
+    if (!editorContainer || currentMode !== 'edit') {
+      if (window.IDEUtils) IDEUtils.showToast('Open a file in edit mode first', 'warning');
+      return;
+    }
+    
+    if (findReplaceEl) {
+      closeFindReplace();
+    }
+    
+    findReplaceEl = document.createElement('div');
+    findReplaceEl.className = 'find-replace-bar';
+    findReplaceEl.innerHTML = \`
+      <div class="fr-input-group">
+        <label>Find</label>
+        <input type="text" class="fr-find-input input" placeholder="Search...">
+        <span class="fr-count">0/0</span>
+      </div>
+      <div class="fr-input-group fr-replace-group">
+        <label>Replace</label>
+        <input type="text" class="fr-replace-input input" placeholder="Replace...">
+      </div>
+      <div class="fr-actions">
+        <button class="btn btn-ghost btn-xs fr-btn" data-action="fr-prev" title="Previous (Shift+Enter)">▲</button>
+        <button class="btn btn-ghost btn-xs fr-btn" data-action="fr-next" title="Next (Enter)">▼</button>
+        <button class="btn btn-outline btn-xs fr-btn" data-action="fr-replace" title="Replace">Replace</button>
+        <button class="btn btn-outline btn-xs fr-btn" data-action="fr-replace-all" title="Replace All">All</button>
+        <button class="btn btn-ghost btn-xs fr-btn" data-action="fr-close" title="Close (Esc)">✕</button>
+      </div>
+    \`;
+    
+    editorContainer.insertBefore(findReplaceEl, editorContainer.firstChild);
+    
+    const findInput = findReplaceEl.querySelector('.fr-find-input');
+    findInput.focus();
+    
+    // Bind events
+    bindFindReplaceEvents();
+  }
+  
+  function openReplace() {
+    openFind();
+    findReplaceEl?.classList.add('show-replace');
+  }
+  
+  function closeFindReplace() {
+    if (findReplaceEl) {
+      findReplaceEl.remove();
+      findReplaceEl = null;
+    }
+  }
+  
+  let currentMatchIndex = -1;
+  let currentMatches = [];
+  
+  function bindFindReplaceEvents() {
+    const findInput = findReplaceEl.querySelector('.fr-find-input');
+    const replaceInput = findReplaceEl.querySelector('.fr-replace-input');
+    const countEl = findReplaceEl.querySelector('.fr-count');
+    
+    // Search on input
+    findInput.addEventListener('input', () => performFind());
+    
+    // Keyboard navigation
+    findInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          navigateMatches(-1);
+        } else {
+          navigateMatches(1);
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeFindReplace();
+      }
+    });
+    
+    // Button actions
+    findReplaceEl.querySelector('[data-action="fr-prev"]')?.addEventListener('click', () => navigateMatches(-1));
+    findReplaceEl.querySelector('[data-action="fr-next"]')?.addEventListener('click', () => navigateMatches(1));
+    findReplaceEl.querySelector('[data-action="fr-replace"]')?.addEventListener('click', () => replaceCurrent());
+    findReplaceEl.querySelector('[data-action="fr-replace-all"]')?.addEventListener('click', () => replaceAll());
+    findReplaceEl.querySelector('[data-action="fr-close"]')?.addEventListener('click', closeFindReplace);
+  }
+  
+  function performFind() {
+    const textarea = editorContainer?.querySelector('.code-editor-textarea');
+    const findInput = findReplaceEl?.querySelector('.fr-find-input');
+    const countEl = findReplaceEl?.querySelector('.fr-count');
+    
+    if (!textarea || !findInput) return;
+    
+    const query = findInput.value;
+    const text = textarea.value;
+    
+    currentMatches = [];
+    currentMatchIndex = -1;
+    
+    if (query) {
+      // Find all matches (case-insensitive)
+      const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+      let match;
+      while ((match = regex.exec(text)) !== null) {
+        currentMatches.push({ index: match.index, length: match[0].length, text: match[0] });
+      }
+      
+      if (currentMatches.length > 0) {
+        currentMatchIndex = 0;
+        highlightMatch(textarea);
+      }
+    }
+    
+    // Update count
+    if (countEl) {
+      countEl.textContent = currentMatches.length > 0 
+        ? \`\${currentMatchIndex + 1}/\${currentMatches.length}\` 
+        : '0/0';
+    }
+  }
+  
+  function navigateMatches(direction) {
+    if (currentMatches.length === 0) return;
+    
+    const textarea = editorContainer?.querySelector('.code-editor-textarea');
+    if (!textarea) return;
+    
+    currentMatchIndex += direction;
+    if (currentMatchIndex < 0) currentMatchIndex = currentMatches.length - 1;
+    if (currentMatchIndex >= currentMatches.length) currentMatchIndex = 0;
+    
+    highlightMatch(textarea);
+    
+    // Update count
+    const countEl = findReplaceEl?.querySelector('.fr-count');
+    if (countEl) {
+      countEl.textContent = \`\${currentMatchIndex + 1}/\${currentMatches.length}\`;
+    }
+  }
+  
+  function highlightMatch(textarea) {
+    const match = currentMatches[currentMatchIndex];
+    if (!match) return;
+    
+    textarea.focus();
+    textarea.setSelectionRange(match.index, match.index + match.length);
+    
+    // Scroll to selection
+    const lineNum = textarea.value.substring(0, match.index).split('\n').length;
+    const lineHeight = parseInt(getComputedStyle(textarea).lineHeight) || 20;
+    textarea.scrollTop = Math.max(0, (lineNum - 10) * lineHeight);
+  }
+  
+  function replaceCurrent() {
+    const textarea = editorContainer?.querySelector('.code-editor-textarea');
+    const replaceInput = findReplaceEl?.querySelector('.fr-replace-input');
+    
+    if (!textarea || !replaceInput || currentMatches.length === 0) return;
+    
+    const match = currentMatches[currentMatchIndex];
+    const newText = textarea.value.substring(0, match.index) + 
+                    replaceInput.value + 
+                    textarea.value.substring(match.index + match.length);
+    
+    textarea.value = newText;
+    handleEditInput(textarea); // Trigger change handler
+    
+    // Re-find to update matches
+    performFind();
+  }
+  
+  function replaceAll() {
+    const textarea = editorContainer?.querySelector('.code-editor-textarea');
+    const findInput = findReplaceEl?.querySelector('.fr-find-input');
+    const replaceInput = findReplaceEl?.querySelector('.fr-replace-input');
+    
+    if (!textarea || !findInput) return;
+    
+    const query = findInput.value;
+    if (!query) return;
+    
+    const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+    const newText = textarea.value.replace(regex, replaceInput.value);
+    
+    if (newText !== textarea.value) {
+      textarea.value = newText;
+      handleEditInput(textarea);
+      if (window.IDEUtils) IDEUtils.showToast(\`Replaced \${currentMatches.length} occurrences\`, 'success');
+    }
+    
+    performFind(); // Re-find (should be 0 now)
+  }
+
+
   // Public API
   // ============================================
   

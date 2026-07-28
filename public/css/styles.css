@@ -113,9 +113,10 @@ html.theme-transition *::after {
 }
 
 html {
+  --font-scale: 1;
   font-size: calc(16px * var(--font-scale));
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
+  -webkit-
+  
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -258,18 +259,31 @@ button > svg,
 
 /* Skip Link for Accessibility */
 .skip-link {
-  position: absolute;
-  top: -40px;
-  left: 0;
-  background: var(--color-primary, #6366f1);
-  color: white;
-  padding: var(--space-2) var(--space-4);
-  z-index: var(--z-tooltip);
-  transition: top var(--transition-fast);
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 .skip-link:focus {
-  top: 0;
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 99999;
+  width: auto;
+  height: auto;
+  padding: 12px 20px;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  clip-path: none;
+  white-space: normal;
 }
 
 /* ============================================
@@ -460,6 +474,8 @@ button > svg,
 #btn-view-preview::after {
   content: '';
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   bottom: 2px;
   left: 50%;
   transform: translateX(-50%);
@@ -592,6 +608,8 @@ button > svg,
 .sidebar-nav-btn::before {
   content: '';
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   inset: 0;
   border-radius: inherit;
   background: linear-gradient(135deg, var(--color-primary, #6366f1) 0%, #818cf8 100%);
@@ -639,6 +657,8 @@ button > svg,
 .sidebar-nav-btn.active::after {
   content: '';
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   bottom: 3px;
   left: 50%;
   transform: translateX(-50%);
@@ -677,6 +697,8 @@ button > svg,
    itself, which both .sidebar and .sidebar-expanded read from. */
 .sidebar-resize-handle {
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   top: 0;
   right: 0;
   bottom: 0;
@@ -922,6 +944,8 @@ button > svg,
 .tab-btn.active::after {
   content: '';
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   bottom: -1px;
   left: 20%;
   right: 20%;
@@ -1538,6 +1562,8 @@ button > svg,
 
 .chat-input-actions {
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   right: var(--space-2);
   top: 50%;
   transform: translateY(-50%);
@@ -1932,6 +1958,8 @@ button > svg,
 .editor-tab.active::after {
   content: '';
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   top: 0;
   left: var(--space-3);
   right: var(--space-3);
@@ -3051,6 +3079,76 @@ body.init-error > *:not(.init-error) {
 }
 
 /* ============================================
+   Session Restore Notification
+   ============================================ */
+.session-restore-notification {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(139, 92, 246, 0.08) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary, #6b7280);
+  animation: restoreSlideIn 0.3s ease-out;
+}
+
+.session-restore-notification .restore-icon {
+  color: var(--color-primary, #6366f1);
+  font-size: var(--font-size-base);
+  flex-shrink: 0;
+}
+
+.session-restore-notification .restore-text {
+  flex: 1;
+}
+
+.session-restore-notification .restore-dismiss {
+  background: none;
+  border: none;
+  color: var(--color-text-muted, #9ca3af);
+  cursor: pointer;
+  padding: var(--space-1);
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  border-radius: var(--radius-sm);
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.session-restore-notification .restore-dismiss:hover {
+  color: var(--color-text-secondary, #6b7280);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.session-restore-notification.fade-out {
+  animation: restoreFadeOut 0.3s ease-in forwards;
+}
+
+@keyframes restoreSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes restoreFadeOut {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+/* ============================================
    Mobile Navigation
    ============================================ */
 .mobile-nav {
@@ -3190,6 +3288,8 @@ body.init-error > *:not(.init-error) {
 .hidden { display: none !important; }
 .sr-only {
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   width: 1px;
   height: 1px;
   padding: 0;
@@ -3558,6 +3658,8 @@ textarea:focus-visible {
 .tree-row::before {
   content: '';
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   /* Align with parent's toggle/chevron area - depth aware */
   left: calc(var(--depth, 0) * 20px + 8px);
   top: 0;
@@ -3590,6 +3692,8 @@ textarea:focus-visible {
 .tree-children::before {
   content: '';
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   /* Match where children's vertical lines will be */
   left: calc((var(--child-depth, 1) + 1) * 20px - 12px);
   top: 0;
@@ -3612,6 +3716,8 @@ textarea:focus-visible {
 .tree-children .tree-item > .tree-row::after {
   content: '';
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   /* Start from vertical line and extend right to icon */
   left: calc((var(--child-depth, 1) + 1) * 20px - 12px);
   top: 50%;
@@ -4403,6 +4509,8 @@ textarea:focus-visible {
 
 .theme-preview-accent {
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   bottom: 4px;
   left: 4px;
   right: 4px;
@@ -4419,6 +4527,8 @@ textarea:focus-visible {
 
 .theme-check {
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   top: 4px;
   right: 4px;
   width: 18px;
@@ -4448,6 +4558,8 @@ textarea:focus-visible {
 .theme-swatch::before {
   content: "";
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   inset: 0;
   background: var(--swatch-bg, #ffffff);
 }
@@ -4455,6 +4567,8 @@ textarea:focus-visible {
 .theme-swatch::after {
   content: "";
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   left: 6px;
   right: 6px;
   bottom: 6px;
@@ -4579,6 +4693,8 @@ textarea:focus-visible {
 
 .toggle-input {
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   opacity: 0;
   width: 0;
   height: 0;
@@ -4597,6 +4713,8 @@ textarea:focus-visible {
 .toggle-switch::before {
   content: '';
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   top: 2px;
   left: 2px;
   width: 20px;
@@ -5116,6 +5234,8 @@ textarea:focus-visible {
 .app-loading-overlay::before {
   content: '';
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
@@ -5222,6 +5342,8 @@ textarea:focus-visible {
 /* Sidebar skeleton */
 .sidebar-loading-skeleton {
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   top: 0;
   left: 0;
   right: 0;
@@ -5318,6 +5440,8 @@ textarea:focus-visible {
 /* Chat area skeleton */
 .chat-loading-skeleton {
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   top: 0;
   left: 0;
   right: 0;
@@ -5375,6 +5499,8 @@ textarea:focus-visible {
 /* Editor skeleton */
 .editor-loading-skeleton {
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   top: 0;
   left: 0;
   right: 0;
@@ -5783,6 +5909,8 @@ textarea:focus-visible {
 
 .code-expand-overlay {
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   bottom: 0;
   left: 0;
   right: 0;
@@ -7513,6 +7641,8 @@ textarea:focus-visible {
 .meetings-empty-state::before {
   content: '';
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   inset: var(--space-4);
   border-radius: var(--radius-xl);
   background: linear-gradient(135deg, color-mix(in srgb, var(--color-primary, #6366f1) 3%, transparent) 0%, color-mix(in srgb, var(--color-primary-hover, #8b5cf6) 3%, transparent) 100%);
@@ -7913,6 +8043,8 @@ textarea:focus-visible {
   /* tiny indicator dot under the active sort button */
   content: '';
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   left: 50%;
   bottom: 1px;
   transform: translateX(-50%);
@@ -7992,6 +8124,8 @@ textarea:focus-visible {
 
 #connections-btn .connections-dot {
   position: absolute;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
   top: 4px;
   right: 4px;
   width: 6px;
@@ -8659,3 +8793,225 @@ textarea:focus-visible {
 }
 
 /* === end auto-generated light-mode overrides === */
+
+/* ============================================
+   Keyboard Shortcuts & Command Palette
+   ============================================ */
+
+/* Command Palette */
+.command-palette {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal, 10000);
+}
+
+.command-palette.active {
+  display: flex;
+}
+
+.palette-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+.palette-container {
+  position: relative;
+  width: 90%;
+  max-width: 560px;
+  margin: auto;
+  top: 15vh;
+  background: var(--color-bg-primary, #1e1e2e);
+  border: 1px solid var(--color-border, #313244);
+  border-radius: 12px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.palette-search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-border, #313244);
+}
+
+.palette-search svg {
+  color: var(--color-text-muted, #6c7086);
+  flex-shrink: 0;
+}
+
+.palette-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--color-text-primary, #cdd6f4);
+  font-size: 16px;
+  font-family: inherit;
+}
+
+.palette-input::placeholder {
+  color: var(--color-text-muted, #6c7086);
+}
+
+.palette-hint {
+  padding: 4px 8px;
+  background: var(--color-surface, #313244);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--color-text-muted, #6c7086);
+  font-family: monospace;
+}
+
+.palette-results {
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.palette-group-title {
+  padding: 8px 12px 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted, #6c7086);
+  font-weight: 600;
+}
+
+.palette-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: var(--color-text-primary, #cdd6f4);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.palette-item:hover,
+.palette-item.selected {
+  background: var(--color-surface-hover, #45475a);
+}
+
+.palette-item-desc {
+  font-size: 14px;
+  text-align: left;
+}
+
+.palette-item-key {
+  padding: 2px 8px;
+  background: var(--color-surface, #313244);
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: monospace;
+  color: var(--color-text-muted, #6c7086);
+}
+
+.palette-empty {
+  padding: 32px;
+  text-align: center;
+  color: var(--color-text-muted, #6c7086);
+}
+
+.palette-footer {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  padding: 12px;
+  border-top: 1px solid var(--color-border, #313244);
+  font-size: 11px;
+  color: var(--color-text-muted, #6c7086);
+}
+
+/* Keyboard shortcut hints in UI */
+.kbd-hint {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  background: var(--color-surface, #313244);
+  border: 1px solid var(--color-border, #45475a);
+  border-radius: 4px;
+  font-size: 10px;
+  font-family: monospace;
+  color: var(--color-text-muted, #6c7086);
+  line-height: 1;
+}
+
+/* ============================================
+   Find & Replace Bar
+   ============================================ */
+
+.find-replace-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--color-surface, #313244);
+  border-bottom: 1px solid var(--color-border, #45475a);
+  flex-wrap: wrap;
+}
+
+.fr-input-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fr-input-group label {
+  font-size: 11px;
+  color: var(--color-text-muted, #6c7086);
+  text-transform: uppercase;
+}
+
+.fr-find-input,
+.fr-replace-input {
+  width: 180px;
+  padding: 4px 8px;
+  background: var(--color-bg-primary, #1e1e2e);
+  border: 1px solid var(--color-border, #45475a);
+  border-radius: 4px;
+  color: var(--color-text-primary, #cdd6f4);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.fr-find-input:focus,
+.fr-replace-input:focus {
+  outline: none;
+  border-color: var(--color-primary, #6366f1);
+}
+
+.fr-count {
+  font-size: 11px;
+  color: var(--color-text-muted, #6c7086);
+  min-width: 32px;
+  text-align: center;
+  font-family: monospace;
+}
+
+.fr-replace-group {
+  display: none;
+}
+
+.find-replace-bar.show-replace .fr-replace-group {
+  display: flex;
+}
+
+.fr-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.fr-btn {
+  padding: 4px 8px !important;
+  min-width: auto;
+}
